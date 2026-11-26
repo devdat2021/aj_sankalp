@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Anchor, Navigation, Bell, TriangleAlert, Truck, RefreshCw, ArrowUpRight } from 'lucide-react'
+import { Anchor, Navigation, Bell, TriangleAlert, Truck, RefreshCw, GitBranch, ChevronUp, ChevronDown, X } from 'lucide-react'
 import ShipmentCard from './components/ShipmentCard'
 import NavigationMap from './components/NavigationMap'
 import RouteAlternatives from './components/RouteAlternatives'
@@ -24,6 +24,13 @@ export default function DriverPortal() {
   const [temperature, setTemperature] = useState(2.4)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [panel, setPanel] = useState('trip')
+  const [sheetExpanded, setSheetExpanded] = useState(false)
+
+  function openPanel(nextPanel) {
+    setPanel(nextPanel)
+    setSheetExpanded(true)
+  }
   useEffect(() => {
     let cancelled = false
     Promise.all([driverApi.getShipment(), driverApi.getAlerts(), getRoutes()]).then(([data, updates, routing]) => {
@@ -64,24 +71,44 @@ export default function DriverPortal() {
   }
   const active = routes.find(route => route.id === activeId)
   const location = shipment ? `${shipment.location[0].toFixed(4)}, ${shipment.location[1].toFixed(4)} · simulated truck position` : ''
+  const unread = alerts.filter(alert => !alert.acknowledged).length
+  const criticalAlert = alerts.find(alert => alert.severity === 'critical' && !alert.acknowledged)
   return <div className="driver-portal">
-    <aside className="driver-sidebar"><a className="brand" href="/driver"><span className="brand-icon"><Anchor size={24}/></span><span>CoastWatch<span className="brand-sub">SUPPLY CHAIN MANAGEMENT</span></span></a><div className="portal-label">DRIVER WORKSPACE</div><nav aria-label="Driver navigation"><a className="nav-active" href="#overview"><Truck size={19}/> Trip overview</a><a href="#navigation"><Navigation size={19}/> Navigation</a><a href="#alerts"><Bell size={19}/> Alerts <span className="nav-count">{alerts.filter(a => !a.acknowledged).length}</span></a><button onClick={() => setIncidentOpen(true)} disabled={!shipment}><TriangleAlert size={19}/> Report incident</button></nav><div className="sidebar-bottom"><span className="online-dot"/> Demo operations online<p>Coastal corridor · Karnataka</p><div className="driver-profile"><span className="avatar">AK</span><div><strong>Arjun Kumar</strong><small>Truck driver · KA 19 AB 4821</small></div></div></div></aside>
-    <div className="driver-workspace"><header className="driver-header"><span>Driver portal <span className="header-divider">/</span> <strong>Trip overview</strong></span><span className="badge neutral">DEMO ENVIRONMENT</span></header>
-      <main id="overview" className="driver-main"><div className="page-heading"><div><span className="eyebrow">YOUR JOURNEY, CONNECTED</span><h1>Let’s keep things moving.</h1><p className="muted">Your shipment, route and operations updates in one place.</p></div><DistressButton location={location} onReported={reported}/></div>
-        <div className="demo-strip"><span className="online-dot"/> Standalone demo <span>Shipment, location, sensors and authority responses are simulated. SOS is not an emergency service.</span></div>
-        {message && <div className="status-message" role="status">{message}<button aria-label="Dismiss notification" onClick={() => setMessage('')}>×</button></div>}
-        {error && <p role="alert" className="error-message">{error}</p>}
-        {!shipment ? <div className="driver-card loading" role="status">{error ? 'Unable to load demo. Reload the page to retry.' : 'Preparing your shipment and road routes…'}</div> : <>
-          <div className="overview-grid"><div className="shipment-column"><ShipmentCard shipment={shipment} temperature={temperature} route={active}/><section className="support-card"><TriangleAlert size={21}/><h3>Something on the road?</h3><p>Keep operations informed of delays or cargo issues.</p><button onClick={() => setIncidentOpen(true)}>Report an incident<ArrowUpRight size={17}/></button></section></div>
-            <section className="driver-card navigation-card" id="navigation"><div className="section-heading"><div><h2><Navigation size={18}/> Live route overview</h2><p className="muted">New Mangalore Port <span aria-hidden="true">→</span> Udupi</p></div><button className="icon-button" onClick={refreshRoutes} disabled={loadingRoutes || pending} aria-label="Refresh road routes"><RefreshCw size={18}/></button></div>
-              <div className="disruption-banner"><TriangleAlert size={19}/><div><strong>Flooding on the coastal corridor</strong><span>Simulated incident near Mulki. Review route options.</span></div><a href="#routes">View routes →</a></div>
-              <NavigationMap shipment={shipment} routes={routes} activeId={activeId} selectedId={selectedId}/><p className="routing-notice" role="status">{loadingRoutes ? 'Updating routes…' : notice}</p>
-            </section></div>
-          <RouteAlternatives routes={routes} activeId={activeId} selectedId={selectedId} onSelect={setSelectedId} onRequest={requestReroute} pending={pending || loadingRoutes}/>
-          <AlertsPanel alerts={alerts} onAcknowledge={acknowledge} pendingId={pendingAlert}/>
-        </>}
-        <footer className="driver-footer">CoastWatch-SCM <span>Driver operations · Prototype / 01</span></footer>
-      </main>
-    </div>{incidentOpen && <IncidentModal location={location} onClose={() => setIncidentOpen(false)} onReported={reported}/>}
+    <header className="cockpit-header">
+      <a className="brand" href="/driver" aria-label="CoastWatch driver home"><span className="brand-icon"><Anchor size={25}/></span><span>CoastWatch<span className="brand-sub">SUPPLY CHAIN MANAGEMENT</span></span></a>
+      <div className="workspace-label"><Navigation size={16}/> Driver workspace</div>
+      <div className="header-right"><span className="demo-badge"><i/> DEMO OPERATIONS</span><div className="driver-profile"><span><strong>Arjun Kumar</strong><small>KA 19 AB 4821</small></span><span className="avatar">AK</span></div></div>
+    </header>
+    <div className="demo-ribbon">Simulated shipment, location & authority responses. <strong>SOS is not an emergency service.</strong></div>
+    <main className="cockpit-body">
+      {!shipment ? <div className="loading" role="status"><Navigation size={28}/><h1>Preparing your journey</h1><p>{error || 'Loading shipment and road routes…'}</p>{error && <button onClick={() => window.location.reload()}>Retry</button>}</div> : <>
+        <aside className={`trip-rail ${sheetExpanded ? 'expanded' : ''}`} data-panel={panel} aria-label="Trip information">
+          <button className="sheet-toggle" aria-expanded={sheetExpanded} aria-controls="trip-panel-content" onClick={() => setSheetExpanded(value => !value)}>
+            <span><strong>{shipment.destination}</strong><small>{active ? `${Math.round(active.duration / 60)} min · ${(active.distance / 1000).toFixed(1)} km` : 'Calculating route'} <span>· {temperature.toFixed(1)}°C</span></small></span>
+            {sheetExpanded ? <ChevronDown size={22}/> : <ChevronUp size={22}/>}
+          </button>
+          <nav className="rail-tabs" aria-label="Trip panels">
+            <button aria-pressed={panel === 'trip'} onClick={() => openPanel('trip')}><Truck size={17}/><span>Trip</span></button>
+            <button aria-pressed={panel === 'routes'} onClick={() => openPanel('routes')}><GitBranch size={17}/><span>Routes</span></button>
+            <button aria-pressed={panel === 'alerts'} onClick={() => openPanel('alerts')}><Bell size={17}/><span>Alerts</span><span className="unread-count">{unread}</span></button>
+          </nav>
+          <div className="rail-content" id="trip-panel-content">
+            <div className="trip-section"><ShipmentCard shipment={shipment} temperature={temperature} route={active}/></div>
+            <div className="routes-section"><RouteAlternatives routes={routes} activeId={activeId} selectedId={selectedId} onSelect={setSelectedId} onRequest={requestReroute} pending={pending || loadingRoutes}/></div>
+            <div className="alerts-section"><AlertsPanel alerts={alerts} onAcknowledge={acknowledge} pendingId={pendingAlert}/></div>
+          </div>
+          <div className="rail-footnote"><span className="online-dot"/> Karnataka coastal corridor <span>Demo / 01</span></div>
+        </aside>
+        <section className="navigation-stage" aria-label="Shipment navigation">
+          <div className="map-heading"><div><span className="eyebrow">ON THE ROAD</span><h1>New Mangalore Port <span>→</span> Udupi</h1></div><button className="icon-button" onClick={refreshRoutes} disabled={loadingRoutes || pending} aria-label="Refresh road routes"><RefreshCw size={19}/></button></div>
+          {criticalAlert && <div className="critical-banner"><span className="critical-icon"><TriangleAlert size={21}/></span><div><strong>{criticalAlert.title}</strong><p>Simulated disruption · review route options</p></div><button onClick={() => openPanel('routes')}>View routes</button><button className="acknowledge-critical" disabled={pendingAlert !== null} onClick={() => acknowledge(criticalAlert.id)}>{pendingAlert === criticalAlert.id ? 'Updating…' : 'Acknowledge'}</button></div>}
+          <NavigationMap shipment={shipment} routes={routes} activeId={activeId} selectedId={selectedId}/>
+          <div className="map-source"><span className="source-dot"/><p role="status">{loadingRoutes ? 'Updating routes…' : notice}</p></div>
+        </section>
+        <div className="cockpit-actions"><span className="position-label"><span className="online-dot"/> Simulated truck position <strong>13.0250° N, 74.7950° E</strong></span><button className="report-button" onClick={() => setIncidentOpen(true)}><TriangleAlert size={19}/> Report incident</button><DistressButton location={location} onReported={reported}/></div>
+      </>}
+      {(message || error) && <div className={`status-message ${error ? 'error-message' : ''}`} role="status"><span>{error || message}</span><button aria-label="Dismiss notification" onClick={() => { setMessage(''); setError('') }}><X size={18}/></button></div>}
+    </main>
+    {incidentOpen && <IncidentModal location={location} onClose={() => setIncidentOpen(false)} onReported={reported}/>}
   </div>
 }

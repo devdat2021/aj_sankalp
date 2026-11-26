@@ -14,8 +14,10 @@ Run `npm install`, then `npm run dev` from `frontend`. Open the printed URL at `
 
 ## Demo walkthrough
 
+The Fleet Cockpit layout places a compact trip-and-route rail beside the map on desktop and tablet. On mobile, tap the destination summary to expand or collapse the bottom sheet, then use Trip, Routes or Alerts. Report incident and demo SOS remain available in the bottom action bar. Unacknowledged critical alerts appear above the map; all alerts remain in the Alerts panel.
+
 1. View the refrigerated seafood shipment from New Mangalore Port to a fictional Udupi cold-storage facility. Temperature fluctuates within a simulated 1.8–3.2°C range. The truck position stays fixed; this is not live tracking.
-2. Inspect flooding near Mulki and a local closure near Kaup on the map. Select an alternative to preview it in purple. Active routes are teal; other alternatives are grey-blue.
+2. Inspect flooding near Mulki and a local closure near Kaup on the map. Select an alternative to preview it as a navy dashed line. Active routes are teal; other alternatives are grey-blue.
 3. Request rerouting. After a simulated delay, the authority approves a geometry that does not intersect the demo zones, or declines one that does. Approved routes become active and update distance/ETA; responses appear in alerts. Refreshing routes restores the default assignment and requires a new alternative approval.
 4. Acknowledge alerts, report an incident, or confirm a demo SOS. Reports include type, severity, description, editable location and an automatic timestamp. Confirmation displays the demo report ID. SOS creates a critical incident, but contacts no real authority or emergency service.
 
