@@ -1,0 +1,3 @@
+import React from 'react';
+import {MapContainer,TileLayer,CircleMarker,Popup} from 'react-leaflet';import 'leaflet/dist/leaflet.css';
+export default function ControlTowerMap({data}){return <MapContainer center={[13.00,74.79]} zoom={10} style={{height:380,width:'100%'}}><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>{[...data.vessels,...data.vehicles,...data.incidents.filter(x=>x.status!=='rejected')].map(x=><CircleMarker key={x.id} center={[x.lat,x.lng]} radius={9} pathOptions={{color:x.category?'#e56a37':x.id.startsWith('VES')?'#087e8b':'#254ba6',fillOpacity:.8}}><Popup>{x.name||x.category}<br/>{x.status}</Popup></CircleMarker>)}</MapContainer>}
