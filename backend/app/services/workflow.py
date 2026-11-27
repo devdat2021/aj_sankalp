@@ -52,6 +52,30 @@ def pending(row):
     if row['status']!='pending': raise HTTPException(409, 'Request already decided')
 
 
+def reroute_block(row, sh):
+    if sh['status'] == 'delivered':
+        return 'Consignment delivered; no further route changes are allowed.'
+    if 'assignment_version' in row and (
+        row['assignment_version'] != sh.get('assignment_version', 0)
+        or row.get('truck_id') != sh.get('truck_id')
+        or row.get('base_route_id') != sh.get('route_id')
+        or row.get('base_route') != sh.get('route')
+    ):
+        return 'Truck or approved route changed. Submit a fresh proposal.'
+    return None
+
+
+def route_request_view(row, sh):
+    reason = reroute_block(row, sh) if row['status'] == 'pending' else None
+    return row | ({'status': 'superseded', 'superseded_reason': reason} if reason else {})
+
+
+def supersede_routes(state, sh, reason):
+    for row in state['requests']:
+        if row['shipment_id'] == sh['id'] and row['status'] == 'pending':
+            row.update(status='superseded', superseded_reason=reason, superseded_at=now())
+
+
 def eligibility(state, user, sid):
     """Return pickup eligibility state for a consignment.
 
@@ -64,11 +88,8 @@ def eligibility(state, user, sid):
       - truck_access_approved: approved truck_access request matches assigned truck
       - pickup_allowed: all prerequisites satisfied for driver to record picked_up
     """
-    from app.api.workflow import shipment as ship_func
-    sh = ship_func(state, user, sid)
+    sh = shipment(state, user, sid)
 
-    role = user['role']
-    company_matches = bool(user.get('company_id')) and sh.get('company_id') == user['company_id']
 
     # --- Basic fields ---
     status = sh.get('status', '')
@@ -83,17 +104,17 @@ def eligibility(state, user, sid):
         vessel_arrived = any(e.get('event') in ('arrived', 'docked') for e in vessel_events if isinstance(e, dict))
 
     # --- Unloaded ---
-    unloaded = status == 'unloaded'
+    unloaded = status in {'unloaded', 'ready_for_pickup', 'in_transit', 'delivered'}
 
     # --- Ready for pickup ---
     ready_for_pickup = status == 'ready_for_pickup'
 
     # --- Truck assignment ---
-    truck_assigned = truck_id is not None
+    truck_assigned = bool(truck_id)
 
     # --- Truck access approved ---
     truck_access_approved = False
-    if truck_assigned and company_matches:
+    if truck_assigned:
         truck_access_approved = any(
             r.get('shipment_id') == sh['id']
             and r.get('kind') == 'truck_access'
@@ -126,6 +147,8 @@ def _blocked_reason(ready_for_pickup, truck_access_approved, unloaded,
     """Return a human-readable reason why pickup is blocked."""
     if ready_for_pickup and truck_access_approved and unloaded:
         return None  # pickup allowed
+    if status in {'in_transit', 'delivered'}:
+        return 'Cargo has already been picked up.'
     reasons = []
     if not unloaded:
         reasons.append('cargo not unloaded')
@@ -137,8 +160,6 @@ def _blocked_reason(ready_for_pickup, truck_access_approved, unloaded,
         reasons.append('no truck assigned')
     elif not truck_access_approved:
         reasons.append('truck access not approved for assigned truck')
-    if not vessel_arrived and truck_id:
-        reasons.append('vessel has not arrived/docked')
     if not reasons and ready_for_pickup and truck_access_approved:
         reasons.append('unknown block')
     return '; '.join(reasons)
@@ -201,8 +222,7 @@ def consignment_history(state, user, sid):
     Collects from: shipment events[], related vessel events, port requests,
     and route requests.  Company-scoped — never reveals another company's cargo.
     """
-    from app.api.workflow import shipment as ship_func
-    sh = ship_func(state, user, sid)
+    sh = shipment(state, user, sid)
 
     # --- Normalization helpers ---
 
@@ -247,25 +267,27 @@ def consignment_history(state, user, sid):
                 details={'kind': pr['kind'], 'slot': pr['slot'], 'reason': pr.get('reason')}
             ))
 
-    # --- 3. Route requests related to this shipment ---
-
+    # Route submission and decision are separate immutable facts.
     for rr in state.get('requests', []):
         if rr.get('shipment_id') != ship_id: continue
-        # request creation
         events.append(make_event(
-            {'id': rr['id'], 'reason': rr.get('reason'), 'status': rr.get('status'),
-             'created_at': rr.get('created_at'), 'reviewed_at': rr.get('reviewed_at')},
-            event_type=f'route_{rr["status"]}',
+            {'id': rr['id'], 'created_at': rr.get('created_at')}, 'route_pending',
             actor=rr.get('requester_id'),
             details={'reason': rr.get('reason'), 'options': [o.get('name') for o in rr.get('options', [])]}
         ))
-        # if decided, also record the decision
         if rr['status'] in ('approved', 'rejected') and rr.get('reviewed_at'):
             events.append(make_event(
-                {'id': rr['id'] + ':decision', 'status': rr['status'], 'option_id': rr.get('option_id'), 'reason': rr.get('reason')},
-                event_type='route_decision',
-                actor=rr.get('reviewer_id'),
-                details={'status': rr['status'], 'option_id': rr.get('option_id'), 'reason': rr.get('reason')}
+                {'id': rr['id'] + ':decision', 'created_at': rr['reviewed_at']},
+                event_type='route_' + rr['status'], actor=rr.get('reviewer'),
+                details={'option_id': rr.get('option_id'),
+                         'reason': rr.get('decision_reason', rr.get('reason')),
+                         'eta_before_hours': rr.get('eta_before_hours'),
+                         'eta_after_hours': rr.get('eta_after_hours')}
+            ))
+        if rr.get('superseded_at'):
+            events.append(make_event(
+                {'id': rr['id'] + ':superseded', 'created_at': rr['superseded_at']},
+                'route_superseded', details={'reason': rr.get('superseded_reason')}
             ))
 
     # --- 4. Sort chronologically by created_at, dedupe by id ---

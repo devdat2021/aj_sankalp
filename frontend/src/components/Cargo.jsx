@@ -3,12 +3,12 @@ import { ActionButton, ActionForm, Badge, Empty, Field } from './Forms'
 
 const route = f => ({ id: crypto.randomUUID(), name: f.route_name, delay_hours: Number(f.delay || 0), cost: Number(f.cost || 0), risk: Number(f.risk || 0), simulated: true })
 
-function truckDriverName(sh) {
+function truckDriverName(sh, data) {
   if (!sh.truck_id) return 'No truck'
   const truck = data.vehicles?.find(v => v.id === sh.truck_id)
   if (!truck) return 'Truck ' + sh.truck_id
   const driver = data.users?.find(u => u.id === truck.driver_id)
-  return driver ? driver.name + ' (drv:' + truck.driver_id + ')' : 'Driver ' + truck.driver_id
+  return driver ? driver.name : truck.driver_id || 'Not assigned'
 }
 
 export default function Cargo({ data, user, mutate }) {
@@ -29,7 +29,7 @@ export default function Cargo({ data, user, mutate }) {
       <div className="cw-row"><div><small>{sh.id}</small><h2>{sh.cargo}</h2></div><Badge>{sh.status}</Badge></div>
       <p>{sh.origin || 'Source port'} → {sh.destination}</p>
       <div className="cw-facts"><span><strong>{sh.quantity} t</strong>Cargo quantity</span><span><strong>{sh.eta_hours} h</strong>Estimated arrival</span><span><strong>{sh.requires_cold ? `${sh.temperature}°C / max ${sh.max_temperature}°C` : 'Standard'}</strong>Handling</span><span><strong>{sh.truck_id || 'Unassigned'}</strong>Truck</span>
-<span><strong>Driver:</strong> {truckDriverName(sh)}</span>
+<span><strong>Driver:</strong> {truckDriverName(sh, data)}</span>
 <span><strong>{sh.vessel_id || 'No sea leg'}</strong>Vessel</span></div>
       <p><b>Approved route:</b> {sh.route?.name || sh.route_id || 'Not assigned'}</p>
       {sh.route && <p className="cw-muted">Estimated additional time {sh.route.delay_hours} h · ₹{sh.route.cost || 0} · demo risk {sh.route.risk || 0}/100. Operator-supplied route, not verified navigation.</p>}
@@ -64,39 +64,10 @@ export default function Cargo({ data, user, mutate }) {
           <Empty>No movement events recorded.</Empty>
         )}</details>
 
-      {/* Pickup eligibility */}
-      {user.role !== 'logistics' || sh.status === 'delivered' ? null : (
-        <details open>
-          <summary>Pickup eligibility</summary>
-          <div className="cw-card">
-            <div className="cw-row">
-              <span><strong>Status:</strong> {sh.status}</span>
-              <span><strong>Vessel arrived:</strong> {!!(sh.events?.some(e => e && e.event && /arrived|docked/.test(e.event)))}</span>
-              <span><strong>Unloaded:</strong> {sh.status === 'unloaded'}</span>
-              <span><strong>Ready for pickup:</strong> {sh.status === 'ready_for_pickup'}</span>
-            </div>
-            <div className="cw-row">
-              <span><strong>Truck assigned:</strong> {sh.truck_id || 'No'}</span>
-              <span><strong>Truck access approved:</strong> {(() => { const approved = sh.port_requests && sh.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access && r.status === 'approved' && r.truck_id === sh.truck_id); return approved ? 'Yes' : 'No'; })()}</span>
-              <span><strong>Pickup allowed:</strong> {(() => { const unloaded = sh.status === 'unloaded'; const ready = sh.status === 'ready_for_pickup'; const approved = sh.port_requests && sh.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access && r.status === 'approved' && r.truck_id === sh.truck_id); return unloaded && ready && approved ? 'Yes' : 'No'; })()}</span>
-            </div>
-            <div className="cw-muted tiny">
-              {(() => {
-                const unloaded = sh.status === 'unloaded';
-                const ready = sh.status === 'ready_for_pickup';
-                const approved = sh.port_requests && sh.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access && r.status === 'approved' && r.truck_id === sh.truck_id);
-                if (unloaded && ready && approved) return 'Pickup is allowed — all prerequisites satisfied.';
-                const blocks = [];
-                if (!unloaded) blocks.push('cargo not unloaded');
-                if (!ready) blocks.push('port has not marked ready for pickup');
-                if (!approved) blocks.push('truck access not approved for assigned truck');
-                if (blocks.length) return 'Blocked: ' + blocks.join(', ');
-                return '';
-              })()}
-            </div>
-          </div>
-        </details>
-      )}
+      {logistics && sh.eligibility && <details open><summary>Pickup eligibility</summary>
+        <p>Unloaded: {sh.eligibility.unloaded ? 'Yes' : 'No'} · Ready: {sh.eligibility.ready_for_pickup ? 'Yes' : 'No'} · Truck access: {sh.eligibility.truck_access_approved ? 'Approved' : 'Not approved'}</p>
+        <p>{sh.eligibility.pickup_allowed ? 'Pickup is allowed.' : sh.eligibility.blocked_reason}</p>
+      </details>}
 
       {/* Sea / port / road linkage summary */}
       {sh.vessel_id || sh.route_id || sh.truck_id ? (
@@ -104,7 +75,7 @@ export default function Cargo({ data, user, mutate }) {
           <div className="cw-row">
             {sh.vessel_id && <span><strong>Vessel:</strong> {sh.vessel_id}</span>}
             {sh.truck_id && <span><strong>Truck:</strong> {sh.truck_id}</span>}
-            {sh.truck_id && <span><strong>Driver:</strong> {truckDriverName(sh)}</span>}
+            {sh.truck_id && <span><strong>Driver:</strong> {truckDriverName(sh, data)}</span>}
             {sh.route_id && <span><strong>Route:</strong> {sh.route_id} {sh.route_name ? `· ${sh.route_name}` : ''}</span>}
           </div>
           {sh.port_id && <p><strong>Handling port:</strong> {sh.port_id}</p>}

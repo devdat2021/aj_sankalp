@@ -2,6 +2,32 @@
 
 This document describes the current operational API and separates implemented fields from proposals for later phases. It does not change the synthetic crisis SQL dataset or add schema migrations.
 
+## Phase 5 — reroute review and decisions (implemented)
+
+Confirmed decisions: a truck or approved-route change makes pending proposals outdated and requires a fresh proposal. The bounded Phase 3 eligibility defects were also approved for repair. No rescheduling, new dispatch action or clearance state was introduced.
+
+- Existing `POST /api/route-requests` and `PATCH /api/route-requests/{id}` remain the submission/decision APIs. Only the owning logistics company can approve/reject. A consignment may have one current pending proposal; drivers and ports cannot approve.
+- New proposals snapshot `truck_id`, `assignment_version`, `base_route_id`, `base_route` and `base_eta_hours` from the server. These cannot be supplied by the client. Assignment edits increment the version and supersede pending proposals. Decision validation also compares the snapshot with the live assignment to catch inconsistent/out-of-band edits.
+- `superseded` means no longer actionable, with `superseded_reason` and, for recorded invalidations, `superseded_at`. The original request remains in history. A fresh proposal is permitted. Delivered cargo cannot receive further route changes; pending requests are superseded on delivery.
+- Legacy requests without baseline snapshots remain reviewable against current cargo. The UI explicitly labels the missing baseline. Any assignment change made through the updated API supersedes them as well; changes before the snapshot feature cannot be reconstructed.
+- Submission never changes the active route or ETA. Approval installs only the selected stored option, preserving its optional geometry/source, and adds that option's nonnegative `delay_hours` to the current relative `eta_hours` once. Rejection changes neither. Invalid, duplicate, unauthorized or stale decisions leave operational state unchanged.
+- `reason` remains the original proposal reason. `decision_reason`, `reviewer`, `reviewed_at`, `option_id`, `previous_route`, `eta_before_hours` and `eta_after_hours` describe the decision separately. Old decisions that overwrote proposal reasons cannot be reconstructed; displays/history fall back to their existing reason.
+- The Requests view compares current instructions, proposal baseline, delay, cost/risk estimates and the projected relative ETA. Approval requires an explicit option; rejection needs no option. Decision controls are absent for decided/superseded requests. Estimates are not verified navigation and do not change delivery or pickup slots.
+- Existing notifications reach the relevant operators, and the driver dashboard refresh retrieves the approved route/geometry or rejection reason. Driver views show superseded reasons so an outdated request does not leave them indefinitely waiting.
+- History represents submission as `route_pending` at `created_at`, decision as `route_approved`/`route_rejected` at `reviewed_at`, and recorded invalidation as `route_superseded`. These have stable distinct IDs and retain the proposal and decision reasons separately. Dashboard histories are derived on read; reading a shipment no longer stores its derived history back into operational data.
+
+### Bounded integration repairs
+
+Pickup eligibility now recognizes unloading as complete once status advances to `ready_for_pickup`, `in_transit` or `delivered`; it does not require two mutually exclusive current statuses. Actual pickup eligibility remains `ready_for_pickup` plus a matching approved truck-access request and assigned truck. The eligibility endpoint imports the existing helper correctly. Dashboard responses include the same derived eligibility for the cargo view; port users can inspect matching access without needing a company identity. Existing pickup mutation checks remain unchanged.
+
+The cargo view's malformed access expressions and undefined driver-label variable were repaired. It consumes backend eligibility instead of repeating the contradictory frontend rule. No new no-sea-leg receipt workflow or fleet validation rules were added.
+
+### Local verification
+
+Use demo mode with disposable local operational storage (an Atlas-configured demo writes to Atlas). In the driver portal, submit a road alternative; in logistics Requests, compare and reject it, verifying the route/ETA stays unchanged. Submit a fresh proposal and approve a specific option; return to the driver and refresh to verify its active geometry and decision notification. Submit another proposal, then change the pre-pickup assignment/initial route in logistics: the earlier proposal must show superseded with no decision controls and a fresh proposal must be allowed. A delivered consignment must reject new route requests.
+
+Automated checks: `../.venv/Scripts/python.exe -m pytest -q` from backend; `node --test tests/api.test.js tests/driverApi.test.js tests/logisticsViews.test.js`, `npm run lint` and `npm run build` from frontend. Tests use temporary storage. Live Supabase login and external routing-provider availability are not covered by these checks.
+
 ## Ownership and access
 
 - The backend verifies the bearer token and resolves its subject to an active `users` record. The trusted record supplies `role`, `company_id`, `port_id` and `asset_id`. JWT role/company claims and client request fields do not grant access.

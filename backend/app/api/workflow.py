@@ -9,7 +9,8 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
 from app.services.port_service import find, audit, now
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes
+from copy import deepcopy
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
 
@@ -28,12 +29,13 @@ def dashboard(role: str,user=Depends(current_user)):
     if role not in {'port','logistics','driver','captain'}: raise HTTPException(404,'Unknown portal')
     require(user,role)
     with transaction() as s:
-        rows=[r for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
+        rows=[r | {'history': consignment_history(s,user,r['id']), 'eligibility': eligibility(s,user,r['id'])} for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
+        by_id={r['id']:r for r in rows}
         result=dict(user_id=user['id'],shipments=rows,port=s['port'],simulated=True,
             vessels=[logistics_vessel(v) if role=='logistics' else v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
             vehicles=[v for v in s['vehicles'] if (v.get('company_id')==user['company_id'] if role=='logistics' else v['id'] in {r.get('truck_id') for r in rows})],
             incidents=[r for r in s['incidents'] if r['shipment_id'] in ids],
-            requests=[r for r in s['requests'] if r['shipment_id'] in ids],
+            requests=[route_request_view(r,by_id[r['shipment_id']]) for r in s['requests'] if r['shipment_id'] in ids],
             alerts=[alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
             docking_requests=[r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))])
@@ -44,13 +46,11 @@ def dashboard(role: str,user=Depends(current_user)):
 def get_shipment(id: str,user=Depends(current_user)):
     with transaction() as s:
         sh = shipment(s,user,id)
-        sh['history'] = consignment_history(s,user,id)
-        return sh
+        return sh | {'history': consignment_history(s,user,id)}
 
 @router.get('/shipments/{id}/eligibility')
 def shipment_eligibility(id: str,user=Depends(current_user)):
     with transaction() as s:
-        sh = shipment(s,user,id)
         el = eligibility(s,user,id)
         return el
 
@@ -74,7 +74,9 @@ def assign(id: str,body: Assignment,user=Depends(current_user)):
         if truck['company_id']!=user['company_id']: raise HTTPException(404,'Truck not found')
         if row['status'] in {'in_transit','delivered'}: raise HTTPException(409,'Trip already started')
         old_truck_id = row.get('truck_id')
-        old_route_id = row.get('route_id')
+        if old_truck_id != truck['id'] or row.get('route') != body.route.model_dump():
+            supersede_routes(s,row,'Truck or approved route changed. Submit a fresh proposal.')
+            row['assignment_version'] = row.get('assignment_version',0) + 1
         row.update(truck_id=truck['id'],route_id=body.route.id,route=body.route.model_dump())
         # Preserve assignment history via audit
         if old_truck_id and old_truck_id != truck['id']:
@@ -110,8 +112,8 @@ def review(id: str,body: Review,user=Depends(authority)):
 @router.get('/route-requests')
 def requests(user=Depends(current_user)):
     with transaction() as s:
-        ids={r['id'] for r in s['shipments'] if visible(user,r)}
-        return [r for r in s['requests'] if r['shipment_id'] in ids]
+        rows={r['id']:r for r in s['shipments'] if visible(user,r)}
+        return [route_request_view(r,rows[r['shipment_id']]) for r in s['requests'] if r['shipment_id'] in rows]
 
 @router.post('/route-requests',status_code=201)
 def request_route(body: RouteRequest,user=Depends(current_user)):
@@ -120,8 +122,13 @@ def request_route(body: RouteRequest,user=Depends(current_user)):
         sh=shipment(s,user,body.shipment_id)
         if sh['status']=='delivered': raise HTTPException(409,'Consignment delivered')
         if len({o.id for o in body.options})!=len(body.options): raise HTTPException(422,'Option IDs must be unique')
-        if any(r['shipment_id']==sh['id'] and r['status']=='pending' for r in s['requests']): raise HTTPException(409,'Pending reroute exists')
-        row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],requester_id=user['id'],status='pending',created_at=now())
+        for existing in s['requests']:
+            if existing['shipment_id']==sh['id'] and existing['status']=='pending':
+                reason=reroute_block(existing,sh)
+                if not reason: raise HTTPException(409,'Pending reroute exists')
+                existing.update(status='superseded',superseded_reason=reason,superseded_at=now())
+        row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],requester_id=user['id'],status='pending',created_at=now(),
+            truck_id=sh.get('truck_id'),assignment_version=sh.get('assignment_version',0),base_route_id=sh.get('route_id'),base_route=deepcopy(sh.get('route')),base_eta_hours=sh['eta_hours'])
         s['requests'].append(row); notify(s,'Reroute requested: '+sh['id'],[sh]); return row
 
 @router.patch('/route-requests/{id}')
@@ -129,11 +136,18 @@ def decide(id: str,body: Decision,user=Depends(current_user)):
     require(user,'logistics')
     with transaction() as s:
         row=find(s,'requests',id); sh=shipment(s,user,row['shipment_id']); pending(row)
+        blocked=reroute_block(row,sh)
+        if blocked: raise HTTPException(409,blocked)
+        row['previous_route']=deepcopy(sh.get('route'))
+        row['eta_before_hours']=sh['eta_hours']
         if body.status=='approved':
             option=next((o for o in row['options'] if o['id']==body.option_id),None)
             if option is None: raise HTTPException(422,'Choose a valid option')
-            sh.update(route_id=option['id'],route=option); sh['eta_hours']+=option['delay_hours']
-        row.update(body.model_dump()); row.update(reviewer=user['id'],reviewed_at=now())
+            sh.update(route_id=option['id'],route=deepcopy(option)); sh['eta_hours']+=option['delay_hours']
+            sh['assignment_version']=sh.get('assignment_version',0)+1
+        row['eta_after_hours']=sh['eta_hours']
+        row.update(status=body.status, option_id=body.option_id if body.status=='approved' else None,
+                   decision_reason=body.reason, reviewer=user['id'], reviewed_at=now())
         notify(s,f"{sh['id']}: reroute {body.status}. {body.reason}",[sh],event_key=id+':decision'); audit(s,user,body.status,id); return row
 
 @router.get('/ports/{id}/capacity')
@@ -297,6 +311,7 @@ def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
             if sh.get('cold_reserved'):
                 s['port']['cold_occupied']=max(0,s['port']['cold_occupied']-sh['quantity']); sh['cold_reserved']=False
         sh['status']=after
+        if after=='delivered': supersede_routes(s,sh,'Consignment delivered; no further route changes are allowed.')
         event=dict(id=str(uuid4()),event=body.event,created_at=now(),actor=user['id'])
         sh['events'].append(event); notify(s,id+': '+body.event,[sh],event_key=event['id']); audit(s,user,body.event,id); return sh
 
