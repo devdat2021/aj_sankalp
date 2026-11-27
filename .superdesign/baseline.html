@@ -1,0 +1,55 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CoastWatch</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+</head>
+<body>
+  <div class="min-h-screen bg-white flex flex-col" data-sd-id="1">
+    <nav class="flex flex-wrap gap-[24px] px-[24px] py-[14px] bg-[#102d40] font-[Segoe_UI,sans-serif] text-[14px] font-semibold" aria-label="Portals" data-sd-id="2">
+      <a href="/" id="nav-home" class="text-white no-underline hover:underline" data-sd-id="3">CoastWatch</a>
+      <a href="/driver" id="nav-driver" class="text-white no-underline hover:underline" data-sd-id="4">Driver</a>
+      <a href="/port" id="nav-port" class="text-white no-underline hover:underline" data-sd-id="5">Port authority</a>
+      <a href="/logistics" id="nav-logistics" class="text-white no-underline hover:underline" data-sd-id="6">Logistics</a>
+      <a href="/captain" id="nav-captain" class="text-white no-underline hover:underline" data-sd-id="7">Captain</a>
+    </nav>
+    <main class="max-w-[960px] w-full mx-auto mt-[70px] mb-[70px] px-[24px] font-[Segoe_UI,sans-serif] text-[#142f42] flex-1" data-sd-id="8">
+      <h1 class="text-[2rem] tracking-[-.035em] mb-[10px] mt-0 font-bold" data-sd-id="9">CoastWatch</h1>
+      <p class="leading-[1.6] mt-0 mb-0" data-sd-id="10">Coastal supply chain operations</p>
+
+      <div class="flex flex-wrap gap-[24px] my-[32px]" data-sd-id="11">
+        <article class="flex-1 min-w-[220px] p-[28px] border border-[#c9d5df] rounded-[12px] text-[#142f42] bg-[#f3f6f8] shadow-[0_3px_8px_rgba(23,59,77,0.04)]" data-sd-id="12">
+          <iconify-icon icon="lucide:package" class="text-[#087e8b] mb-[20px] text-[28px] block"></iconify-icon>
+          <h2 class="text-[1.25rem] mb-[12px] mt-0 font-bold" data-sd-id="13">Logistics company</h2>
+          <p class="leading-[1.6] mt-0 mb-[16px]" data-sd-id="14">Plan consignments, assign trucks and coordinate transport.</p>
+          <button class="px-[16px] py-[12px] border-0 rounded-[7px] bg-[#087e8b] text-white cursor-pointer font-semibold inline-flex items-center justify-center text-[16px] hover:opacity-90 transition-opacity" data-sd-id="15">Enter logistics demo</button>
+        </article>
+        
+        <article class="flex-1 min-w-[220px] p-[28px] border border-[#c9d5df] rounded-[12px] text-[#142f42] bg-[#f3f6f8] shadow-[0_3px_8px_rgba(23,59,77,0.04)]" data-sd-id="16">
+          <iconify-icon icon="lucide:anchor" class="text-[#087e8b] mb-[20px] text-[28px] block"></iconify-icon>
+          <h2 class="text-[1.25rem] mb-[12px] mt-0 font-bold" data-sd-id="17">Port Operations</h2>
+          <p class="leading-[1.6] mt-0 mb-[16px]" data-sd-id="18">Manage access, docking, capacity and disruption warnings.</p>
+          <button class="px-[16px] py-[12px] border-0 rounded-[7px] bg-[#087e8b] text-white cursor-pointer font-semibold inline-flex items-center justify-center text-[16px] hover:opacity-90 transition-opacity" data-sd-id="19">Enter port demo</button>
+        </article>
+
+        <article class="flex-1 min-w-[220px] p-[28px] border border-[#c9d5df] rounded-[12px] text-[#142f42] bg-[#f3f6f8] shadow-[0_3px_8px_rgba(23,59,77,0.04)]" data-sd-id="20">
+          <iconify-icon icon="lucide:truck" class="text-[#087e8b] mb-[20px] text-[28px] block"></iconify-icon>
+          <h2 class="text-[1.25rem] mb-[12px] mt-0 font-bold" data-sd-id="21">Truck operator</h2>
+          <p class="leading-[1.6] mt-0 mb-[16px]" data-sd-id="22">Follow assignments, report conditions and update deliveries.</p>
+          <button class="px-[16px] py-[12px] border-0 rounded-[7px] bg-[#087e8b] text-white cursor-pointer font-semibold inline-flex items-center justify-center text-[16px] hover:opacity-90 transition-opacity" data-sd-id="23">Enter driver demo</button>
+        </article>
+
+        <article class="flex-1 min-w-[220px] p-[28px] border border-[#c9d5df] rounded-[12px] text-[#142f42] bg-[#f3f6f8] shadow-[0_3px_8px_rgba(23,59,77,0.04)]" data-sd-id="24">
+          <iconify-icon icon="lucide:ship" class="text-[#087e8b] mb-[20px] text-[28px] block"></iconify-icon>
+          <h2 class="text-[1.25rem] mb-[12px] mt-0 font-bold" data-sd-id="25">Vessel operator</h2>
+          <p class="leading-[1.6] mt-0 mb-[16px]" data-sd-id="26">Coordinate docking, cargo and vessel movements.</p>
+          <button class="px-[16px] py-[12px] border-0 rounded-[7px] bg-[#087e8b] text-white cursor-pointer font-semibold inline-flex items-center justify-center text-[16px] hover:opacity-90 transition-opacity" data-sd-id="27">Enter captain demo</button>
+        </article>
+      </div>
+
+      <p class="text-[#506b78] text-[.875rem] leading-[1.6] mt-0 mb-0" data-sd-id="28">Demo access uses the backend’s shared records. Sign out to switch roles.</p>
+    </main>
+  </div>
+
+</body></html>

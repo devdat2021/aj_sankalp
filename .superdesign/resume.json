@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "/": {
+      "targetKind": "existing-ui",
+      "projectId": "433cfb15-3bf4-48fb-ab8c-5d4af1837a5d",
+      "baselineDraftId": "a36cb2f1-4e96-4a20-8ab5-c9e7be15c3db",
+      "activeDraftId": "a36cb2f1-4e96-4a20-8ab5-c9e7be15c3db",
+      "designSystemPath": ".superdesign/design-system.md",
+      "referenceIds": [
+        "72d9ac73-61b1-4500-9a9c-33d7b800d0d1"
+      ],
+      "contextFiles": [
+        "frontend/src/App.jsx",
+        "frontend/src/index.css",
+        "frontend/src/components/Forms.jsx",
+        "frontend/src/services/roles.js",
+        "frontend/src/coordination.css",
+        ".superdesign/design-system.md",
+        ".superdesign/verified-content.md"
+      ],
+      "fingerprints": {
+        "frontend/src/App.jsx": "6c7ab22d7126c252de1e93afdcad0800bd7c768d236c036e762abbeeb9295fac",
+        "frontend/src/index.css": "4304387682c63b12c074c0b66c6a8a056edc4c17da84ae12aa05d44119a4ffa0",
+        "frontend/src/components/Forms.jsx": "09f1b349b72892d1698b3ce7e61bd0ea6354861b68ec5afeb0832867913f3287",
+        "frontend/src/services/roles.js": "329035ccee9c6f48d06f83a81c3a449912e7146810f80d1c42b83db59f956526",
+        "frontend/src/coordination.css": "06c33fc07a5ebc5ec046029f3dc15a7635a828d5a3c4c1e9dbb37692955968ab",
+        ".superdesign/design-system.md": "70a9eee0f91e2ccf39136e2c9bd2a152f901bbdde4a6c6375835dca8a4c35164",
+        ".superdesign/verified-content.md": "1a2a804bb518f8e2a811f13132f3877dc0ed350b44358876f705a6a466235a82"
+      },
+      "components": [],
+      "drafts": {
+        "a36cb2f1-4e96-4a20-8ab5-c9e7be15c3db": {
+          "title": "CoastWatch Landing",
+          "visualDirection": "Single emerald and zinc glass landing, verified saved simulation metrics",
+          "currentVersion": 2
+        }
+      },
+      "updatedAt": "2026-11-27"
+    }
+  }
+}

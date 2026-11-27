@@ -1,0 +1,35 @@
+{
+  "run_id": "bd056193-496f-43f1-8d20-9efdfec04a85",
+  "scenario": "Port Closure \u2014 Chennai (72.0h)",
+  "completed_at": "2026-11-27 08:26:05.035003",
+  "affected_shipments": 27,
+  "cold_chain_at_risk": 8,
+  "baseline_delay_hours": 245.44,
+  "strategies": [
+    {
+      "strategy_type": "cheapest",
+      "additional_cost": 3672895.63,
+      "average_delay_hours": 306.81,
+      "strategy_score": 0.7004,
+      "is_recommended": 0
+    },
+    {
+      "strategy_type": "fastest",
+      "additional_cost": 8395190.02,
+      "average_delay_hours": 135.0,
+      "strategy_score": 0.53,
+      "is_recommended": 1
+    },
+    {
+      "strategy_type": "balanced",
+      "additional_cost": 6034042.82,
+      "average_delay_hours": 196.36,
+      "strategy_score": 0.5612,
+      "is_recommended": 0
+    }
+  ],
+  "balanced_cost_reduction_vs_fastest_inr": 2361147.2,
+  "balanced_delay_avoided_vs_disruption_hours": 49.08,
+  "delay_impact_reduction_percent": 20.0,
+  "tradeoff_extra_delay_vs_fastest_hours": 61.36
+}

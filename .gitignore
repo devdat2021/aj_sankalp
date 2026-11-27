@@ -12,3 +12,5 @@ backend/data/*.json
 backend/data/*.db
 backend/data/*.db-*
 .DS_Store
+
+.superdesign/tmp/
