@@ -190,8 +190,17 @@ def disable_user(user_id: str, actor=Depends(administrator)):
 def driver_assignments(user_id: str):
     from app.services.work_access import assignment_driver
     with transaction() as state:
-        return [dict(row, driver=driver.get('name') or driver['id']) for row in state['shipments']
-                if (driver := assignment_driver(state, row)) and driver['id'] == user_id]
+        items = []
+        for row in state['shipments']:
+            driver = assignment_driver(state, row)
+            if not driver or driver['id'] != user_id:
+                continue
+            item = {k: v for k, v in row.items() if k != 'route'}
+            if isinstance(row.get('route'), dict):
+                item['route'] = {rk: rv for rk, rv in row['route'].items() if rk != 'points'}
+            item['driver'] = driver.get('name') or driver['id']
+            items.append(item)
+        return items
 
 
 @router.post('/users/{user_id}/assignments/{shipment_id}/share')

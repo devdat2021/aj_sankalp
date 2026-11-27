@@ -34,6 +34,12 @@ export default function Admin() {
   const [share, setShare] = useState(null)
   async function openAssignments(driver) {
     const assignments = await api(`/admin/users/${driver.id}/assignments`, token)
+    if (assignments.length === 1) {
+      const row = assignments[0]
+      const result = await api(`/admin/users/${driver.id}/assignments/${row.id}/share`, token, 'POST')
+      setShare({ driver, assignments, row, code: result.work_token })
+      return
+    }
     setShare({ driver, assignments })
   }
   async function issueShare(row) {
