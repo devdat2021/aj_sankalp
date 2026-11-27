@@ -38,6 +38,7 @@ export default function DriverPortal({ workSession } = {}) {
   const [incidentOpen, setIncidentOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [connected, setConnected] = useState(false)
   const [panel, openPanel] = useState(null)
   const autoLoadedForRef = useRef('')
   const prevReqStatusesRef = useRef(new Map())
@@ -61,8 +62,10 @@ export default function DriverPortal({ workSession } = {}) {
     try {
       const next = await driverApi.getDashboard()
       setData(next)
+      setConnected(true)
       setError('')
     } catch (err) {
+      setConnected(false)
       if (workSession && [401, 403].includes(err.status)) { setData(null); setIncidentOpen(false) }
       setError(err.message)
     }
@@ -173,7 +176,7 @@ export default function DriverPortal({ workSession } = {}) {
   return <div className="driver-portal vehicle-display">
     <header className="vehicle-header">
       <a href={workSession ? "/driver/work" : "/driver"} className="vehicle-brand"><Anchor size={22}/> CoastalWatch</a>
-      <span className="vehicle-mode">Driver display</span>
+      <span className="vehicle-mode">Driver display</span><span className={`connection-dot ${connected ? "online" : ""}`} role="status" aria-label={connected ? "Connected" : "Offline"} title={connected ? "Connected" : "Offline"} />
       <span className="vehicle-id"><Truck size={16}/>{shipment?.vehicle || user.asset_id}</span>
       {!workSession && <ActionButton action={logout}>Sign out</ActionButton>}
     </header>
@@ -312,6 +315,7 @@ export default function DriverPortal({ workSession } = {}) {
       </>}
       {(message || error) && <div className={`status-message ${error ? 'error-message' : ''}`} role="status"><span>{error || message}</span><button aria-label="Dismiss notification" onClick={() => { setMessage(''); setError('') }}><X size={18}/></button></div>}
     </main>
+    {shipment && <nav className="driver-mobile-tabs" aria-label="Driver views">{[[null, Navigation, "Map"], ["trip", Truck, "Shipment"], ["alerts", Bell, "Alerts"]].map(([id, Icon, label]) => <button key={label} aria-pressed={panel === id} onClick={() => openPanel(id)}><Icon size={20}/>{label}</button>)}</nav>}
     {incidentOpen && <IncidentModal driverApi={driverApi} shipment={shipment} location={location} onClose={() => setIncidentOpen(false)} onReported={reported}/>}
   </div>
 }

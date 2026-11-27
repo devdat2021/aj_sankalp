@@ -117,3 +117,22 @@
 }
 @media(max-height:620px) and (min-width:761px) { .driver-portal { min-height:480px; }.driver-portal .cockpit-header { height:58px; }.driver-portal .map-heading { padding:8px 16px; }.driver-portal .critical-banner { padding:8px 12px; } }
 @media(prefers-reduced-motion:reduce) { .driver-portal *, .driver-dialog * { scroll-behavior:auto!important; } }
+
+.connection-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#94a3b8; flex-shrink:0; }
+.connection-dot.online { background:#34d399; animation:connection-pulse 2s infinite; }
+@keyframes connection-pulse { 50% { box-shadow:0 0 0 5px #34d39920; } }
+.driver-portal .journey + .journey { border-top:1px solid transparent; border-image:linear-gradient(90deg,#087e8b50,#dbe4e9,transparent) 1; padding-top:16px; }
+.driver-portal .route-option { border-left:4px solid #94a3b8; }
+.driver-portal .route-option[data-risk=low] { border-left-color:#10b981; }
+.driver-portal .route-option[data-risk=medium] { border-left-color:#f59e0b; }
+.driver-portal .route-option[data-risk=high] { border-left-color:#dc2626; }
+.alerts-empty { text-align:center; padding:28px 16px; color:#637986; }
+.driver-mobile-tabs { display:none; }
+@media(max-width:768px) {
+  .driver-mobile-tabs { position:fixed; inset:auto 0 0; z-index:1400; display:flex; padding:8px 12px calc(8px + env(safe-area-inset-bottom)); background:white; border-top:1px solid #dbe4e9; gap:8px; }
+  .driver-mobile-tabs button { display:flex; flex:1; align-items:center; justify-content:center; gap:8px; min-height:44px; background:white; color:#637986; border:0; }
+  .driver-mobile-tabs button[aria-pressed=true] { background:#e8f5f4; color:#087e8b; }
+  .driver-portal.vehicle-display { padding-bottom:68px; box-sizing:border-box; }
+  .driver-portal .drive-toolbar { bottom:68px; }
+  .driver-portal .rail-tabs { display:none; }
+}

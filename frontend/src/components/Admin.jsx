@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import AssignmentQR from './AssignmentQR'
+import Modal from '../portals/driver/components/Modal'
 import { Link } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { ActionButton } from './Forms'
@@ -28,6 +30,16 @@ export default function Admin() {
   const [busyId, setBusyId] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [query, setQuery] = useState('')
+  const [share, setShare] = useState(null)
+  async function openAssignments(driver) {
+    const assignments = await api(`/admin/users/${driver.id}/assignments`, token)
+    setShare({ driver, assignments })
+  }
+  async function issueShare(row) {
+    const result = await api(`/admin/users/${share.driver.id}/assignments/${row.id}/share`, token, 'POST')
+    setShare(previous => ({ ...previous, row, code: result.work_token }))
+  }
 
   const loadUsers = useCallback(async () => {
     setLoading(true)
@@ -136,7 +148,7 @@ export default function Admin() {
   }
 
   const users = directory?.users || []
-  const sortedUsers = [...users].sort((a, b) => {
+  const sortedUsers = users.filter(u => [u.email, u.name, u.role, u.requested_role].some(value => value?.toLowerCase().includes(query.toLowerCase()))).sort((a, b) => {
     const rank = { pending: 0, active: 1, disabled: 2 }
     return (rank[a.status] ?? 3) - (rank[b.status] ?? 3)
   })
@@ -176,7 +188,7 @@ export default function Admin() {
         <div className="cw-row" style={{ marginBottom: 12 }}>
           <div>
             <p className="cw-eyebrow">ACCESS CONTROL</p>
-            <h2 style={{ margin: 0 }}>Registered &amp; Pending Users</h2>
+            <h2 style={{ margin: 0 }}>Registered &amp; Pending Users <span className="cw-badge">{users.length}</span></h2>
           </div>
           <button type="button" className="secondary" onClick={loadUsers} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh users'}
@@ -192,38 +204,28 @@ export default function Admin() {
         {loading && !directory ? (
           <p className="cw-muted">Loading registered users…</p>
         ) : (
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Status</th>
-                  <th>Requested</th>
-                  <th>Assigned Role</th>
-                  <th>Scope Assignment</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="admin-directory">
+            <label className="cw-field">Search users by email or role<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Email, name or role" /></label>
+            <div className="admin-users">
                 {sortedUsers.map(u => {
                   const d = drafts[u.auth_user_id] || defaultDraft(u, directory || {})
                   const busy = busyId === u.auth_user_id
                   const isSelf = u.id && u.id === user.id
                   const companyTrucks = (directory?.vehicles || []).filter(v => v.company_id === d.company_id)
                   return (
-                    <tr key={u.auth_user_id}>
-                      <td>
+                    <article className={`admin-user ${u.status === "pending" ? "pending" : ""}`} key={u.auth_user_id}>
+                      <div>
                         <strong>{u.email || u.name}</strong>
                         {u.email && <div className="cw-muted" style={{ fontSize: 12 }}>{u.name}</div>}
                         {u.email_confirmed === false && <div className="cw-muted" style={{ fontSize: 11 }}>Email unconfirmed</div>}
-                      </td>
-                      <td>
+                      </div>
+                      <div>
                         <span className={`cw-badge ${u.status === 'active' ? 'confirmed' : u.status === 'pending' ? 'slot_suggested' : ''}`}>
                           {u.status}
                         </span>
-                      </td>
-                      <td>{u.requested_role ? (roles[u.requested_role]?.name || u.requested_role) : '—'}</td>
-                      <td>
+                      </div>
+                      <div><small>Requested role</small><span className="cw-badge">{u.requested_role ? (roles[u.requested_role]?.name || u.requested_role) : "None"}</span><p>Current role · {u.role || "Pending assignment"}</p></div>
+                      <div>
                         <select
                           aria-label={`Role for ${u.email || u.name}`}
                           value={d.role}
@@ -234,8 +236,8 @@ export default function Admin() {
                             <option key={key} value={key}>{info.name}</option>
                           ))}
                         </select>
-                      </td>
-                      <td>
+                      </div>
+                      <div>
                         {d.role === 'admin' && <span className="cw-muted">All workspaces</span>}
                         {d.role === 'port' && (
                           <select
@@ -287,9 +289,9 @@ export default function Admin() {
                             ))}
                           </select>
                         )}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      </div>
+                      <div>
+                        <div className="cw-actions">{u.role === "driver" && u.active && <ActionButton action={() => openAssignments(u)}>Share assignment</ActionButton>}
                           <button type="button" disabled={busy} onClick={() => saveUser(u)}>
                             {busy ? 'Saving…' : u.status === 'active' ? 'Update' : 'Approve & assign'}
                           </button>
@@ -299,20 +301,21 @@ export default function Admin() {
                             </button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+                    </article>
                   )
                 })}
-                {!sortedUsers.length && (
-                  <tr>
-                    <td colSpan={6} className="cw-muted">No registered users found yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                {!sortedUsers.length && <p className="cw-muted">No matching users.</p>}
+            </div>
           </div>
         )}
       </section>
+      {share && <Modal title={`Share assignment · ${share.driver.name}`} onClose={() => setShare(null)}>
+        {share.assignments.map(row => <div key={row.id} className="cw-card"><strong>{row.id} · {row.destination}</strong><p>{row.cargo}</p><ActionButton action={() => issueShare(row)}>Generate share QR</ActionButton></div>)}
+        {!share.assignments.length && <p>No active assignments for this driver.</p>}
+        <p>Generating a QR replaces the previous link for that shipment.</p>
+        {share.code && <AssignmentQR token={share.code} shipment={share.row.id} details={{...share.row, driver: share.driver.name}} />}
+      </Modal>}
     </main>
   )
 }

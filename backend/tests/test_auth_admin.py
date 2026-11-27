@@ -203,3 +203,19 @@ def test_pending_supabase_users_and_role_onboarding(client, monkeypatch):
     assert cap_saved.status_code == 200
     assert client.get('/api/captain/dashboard', headers=headers(pending_captain)).status_code == 200
     assert client.get('/api/port/dashboard', headers=headers(pending_captain)).status_code == 403
+
+def test_admin_assignment_share_is_scoped(client):
+    path = '/api/admin/users/driver-demo/assignments'
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=headers('local-logistics-demo')).status_code == 403
+    assignments = client.get(path, headers=headers()).json()
+    assert {r['id'] for r in assignments} == {'SHP-101'}
+    assert client.post(path + '/SHP-102/share', headers=headers()).status_code == 404
+    issued = client.post(path + '/SHP-101/share', headers=headers())
+    assert issued.status_code == 200
+    token = issued.json()['work_token']
+    opened = client.post('/api/driver/work/exchange', json={'token': token})
+    assert opened.status_code == 200
+    session = opened.json()['token']
+    dashboard = client.get('/api/driver/dashboard', headers={'Authorization': 'Bearer ' + session})
+    assert {s['id'] for s in dashboard.json()['shipments']} == {'SHP-101'}

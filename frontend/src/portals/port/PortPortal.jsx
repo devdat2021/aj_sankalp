@@ -1,3 +1,4 @@
+import TrendNumber from '../../components/TrendNumber';
 import { lazy, Suspense } from 'react';
 const CrisisSimulator = lazy(() => import('./CrisisSimulator'));
 import './crisis.css';
@@ -20,8 +21,9 @@ const tabs = [['Overview', LayoutDashboard], ['Arrivals & trucks', Truck], ['Car
 export default function PortPortal() {
     const { token, user, logout } = useAuth();
     const [data, setData] = useState(null), [tab, setTab] = useState('Overview'), [error, setError] = useState(''), [query, setQuery] = useState('');
-    const refresh = useCallback(async () => { try { setData(await api('/port/dashboard', token)); setError('') } catch (e) { setError(e.message) } }, [token]);
-    useEffect(() => { if (!token) return; const initial = setTimeout(refresh, 0); const id = setInterval(refresh, 8000); return () => { clearTimeout(initial); clearInterval(id) } }, [token, refresh]);
+    const [updated, setUpdated] = useState(null);
+    const refresh = useCallback(async () => { try { setData(await api('/port/dashboard', token)); setUpdated(new Date()); setError('') } catch (e) { setError(e.message) } }, [token]);
+    useEffect(() => { if (!token) return; const initial = setTimeout(refresh, 0); const id = setInterval(refresh, 30000); return () => { clearTimeout(initial); clearInterval(id) } }, [token, refresh]);
     async function act(path, method, body) { try { const r = await api(path, token, method, body); await refresh(); return r } catch (e) { setError(e.message); throw e } }
     const table = (rows, fields) => <div className="tablewrap"><table><thead><tr>{fields.map(f => <th key={f}>{f.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{rows.filter(r => JSON.stringify(r).toLowerCase().includes(query.toLowerCase())).map(r => <tr key={r.id}>{fields.map(f => <td key={f}>{String(r[f] ?? '—')}</td>)}</tr>)}</tbody></table>{!rows.length && <p>No records yet.</p>}</div>;
 
@@ -43,22 +45,22 @@ export default function PortPortal() {
             <div className="stats">
                 <article>
                     <p>Vessels at port</p>
-                    <strong>{dockedVessels.length} / {vessels.length}</strong>
+                    <strong><TrendNumber value={dockedVessels.length}>{dockedVessels.length} / {vessels.length}</TrendNumber></strong>
                     <small>{dockedVessels.length} docked · {incomingVessels.length} incoming</small>
                 </article>
                 <article>
                     <p>Berths occupied</p>
-                    <strong>{p.occupied_berths} / {p.berths}</strong>
+                    <strong><TrendNumber value={p.occupied_berths}>{p.occupied_berths} / {p.berths}</TrendNumber></strong>
                     <small>{p.berths - p.occupied_berths} berths available ({p.status})</small>
                 </article>
                 <article>
                     <p>Cold &amp; yard usage</p>
-                    <strong>{coldPct}% · {yardPct}%</strong>
+                    <strong><TrendNumber value={coldPct}>{coldPct}% · {yardPct}%</TrendNumber></strong>
                     <small>Cold {coldPct}% · Yard {yardPct}% · Handling {handPct}%</small>
                 </article>
                 <article>
                     <p>Attention required</p>
-                    <strong>{openDocking.length + openPortReqs.length + openIncidents.length}</strong>
+                    <strong><TrendNumber value={openDocking.length + openPortReqs.length + openIncidents.length}/></strong>
                     <small>{openDocking.length + openPortReqs.length} requests · {openIncidents.length} incidents · {readinessShipments.length} cargo</small>
                 </article>
             </div>
@@ -150,7 +152,7 @@ export default function PortPortal() {
         </>;
     };
 
-    return <div className="layout"><WorkspaceNav role="Port authority" tabs={tabs} current={tab} onSelect={name => { setTab(name); setQuery('') }} user={user} logout={logout} /><main><div className="title"><div><h1>{tab === 'Overview' ? 'Port control tower' : tab}</h1><p>{data?.port?.name || 'Port operations'} · {data?.simulated ? 'Demo operational records' : 'Operational records'}</p></div><button onClick={refresh}>Refresh data</button></div>{error && <div className="error" role="alert">{error}</div>}{!data ? <p>Loading operations…</p> : <>
+    return <div className="layout"><WorkspaceNav role="Port authority" tabs={tabs} current={tab} onSelect={name => { setTab(name); setQuery('') }} user={user} logout={logout} /><main><div className="title"><div><h1>{tab === 'Overview' ? 'Port control tower' : tab}</h1><p>{data?.port?.name || 'Port operations'} · {data?.simulated ? 'Demo operational records' : 'Operational records'}</p></div><div><small className="last-updated">{updated ? `Last updated ${updated.toLocaleTimeString()}` : "Connecting…"}</small><button onClick={refresh}>Refresh data</button></div></div>{error && <div className="error" role="alert">{error}</div>}{!data ? <p>Loading operations…</p> : <>
         {tab === 'Crisis Simulator' && <div className="crisis-workspace"><Suspense fallback={<p>Loading simulator...</p>}><CrisisSimulator /></Suspense></div>}
         {tab === 'Network Analysis' && <NetworkAnalysis token={token} />}
         {tab === 'What-If Analysis' && <WhatIfAnalysis token={token} />}

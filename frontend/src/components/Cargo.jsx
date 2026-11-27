@@ -104,7 +104,7 @@ export default function Cargo({ data, user, mutate }) {
       {logistics && sh.truck_id && !driverTrucks.some(v => v.id === sh.truck_id) && sh.status !== 'delivered' &&
         <p>Assign a driver to this truck to enable QR access.</p>}
       {logistics && driverTrucks.some(v => v.id === sh.truck_id) && !['delivered','completed','cancelled','canceled'].includes(sh.status) && <section>
-        {codes[sh.id] && <AssignmentQR token={codes[sh.id]} shipment={sh.id} />}
+        {codes[sh.id] && <AssignmentQR token={codes[sh.id]} shipment={sh.id} details={{ ...sh, driver: truckDriverName(sh, data) }} />}
         <div className="cw-actions">
           <ActionButton action={() => saveAccess(sh.id, `/shipments/${sh.id}/driver-access?action=issue`, 'POST')}>Issue replacement QR</ActionButton>
           <ActionButton action={() => saveAccess(sh.id, `/shipments/${sh.id}/driver-access?action=revoke`, 'POST')}>Revoke driver QR</ActionButton>

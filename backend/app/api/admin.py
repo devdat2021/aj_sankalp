@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
@@ -185,3 +185,23 @@ def disable_user(user_id: str, actor=Depends(administrator)):
         state['audit'].append(dict(id=str(uuid4()), actor_id=actor['id'], action='user_access_disabled',
                                    user_id=user_id, created_at=datetime.now(timezone.utc).isoformat()))
         return user
+
+@router.get('/users/{user_id}/assignments')
+def driver_assignments(user_id: str):
+    from app.services.work_access import assignment_driver
+    with transaction() as state:
+        return [dict(row, driver=driver.get('name') or driver['id']) for row in state['shipments']
+                if (driver := assignment_driver(state, row)) and driver['id'] == user_id]
+
+
+@router.post('/users/{user_id}/assignments/{shipment_id}/share')
+def share_assignment(user_id: str, shipment_id: str, request: Request, response: Response):
+    from app.services.work_access import assignment_driver, issue, protect
+    protect(request, 120)
+    with transaction() as state:
+        row = next((s for s in state['shipments'] if s['id'] == shipment_id), None)
+        driver = assignment_driver(state, row)
+        if not driver or driver['id'] != user_id:
+            raise HTTPException(404, 'Active assignment not found')
+        response.headers['Cache-Control'] = 'no-store'
+        return dict(work_token=issue(state, row))

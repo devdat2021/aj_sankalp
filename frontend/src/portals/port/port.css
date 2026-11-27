@@ -6,3 +6,9 @@
 
 .port-portal .layout>aside {overflow-y:auto;}
 @media(max-width:650px){.port-portal .asidebottom{display:block;}}
+
+.port-portal .crisis-workspace { padding:24px; background:#f3f6f8; border-radius:12px; }
+.port-portal .crisis-simulator { background:#f3f6f8; color:#142f42; border-radius:12px; }
+.port-portal .crisis-workspace :is(.card,.kpi-card) { background:white; color:#142f42; border:1px solid #dbe4e9; border-radius:12px; box-shadow:0 1px 4px #0000000f; }
+
+.port-portal .crisis-workspace :is(.card-body,.card-header) { padding:24px; }

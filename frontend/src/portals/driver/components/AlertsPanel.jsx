@@ -1,6 +1,7 @@
 import { Bell, Check } from 'lucide-react'
 export default function AlertsPanel({ alerts, onAcknowledge, pendingId }) {
   return <section className="driver-card" id="alerts"><div className="section-heading"><h2><Bell size={18}/> Operations alerts</h2><span className="badge neutral">{alerts.filter(a => !a.acknowledged).length} unread</span></div><p className="muted">Simulated updates from your operations team</p>
+    {!alerts.length && <div className="alerts-empty"><svg viewBox="0 0 96 80" width="96" height="80" aria-hidden="true"><circle cx="48" cy="40" r="34" fill="#e8f5f4"/><path d="M25 48V36a23 23 0 0 1 46 0v12l6 8H19z" fill="none" stroke="#142f42" strokeWidth="3"/><path d="m36 38 8 8 17-18M40 64h16" fill="none" stroke="#087e8b" strokeWidth="4" strokeLinecap="round"/></svg><p>All clear — no active alerts</p></div>}
     <div className="alerts-list">{alerts.map(alert => <article key={alert.id} className={`alert-item ${alert.severity}`}><div className="alert-heading"><span className={`badge ${alert.severity}`}>{alert.severity}</span><small>{alert.category}</small></div><h3>{alert.title}</h3><p>{alert.message}</p><button className="text-button" disabled={alert.acknowledged || pendingId !== null} onClick={() => onAcknowledge(alert.id)}>{alert.acknowledged ? <><Check size={14}/> Acknowledged</> : pendingId === alert.id ? 'Acknowledging…' : 'Acknowledge'}</button></article>)}</div>
   </section>
 }

@@ -82,6 +82,9 @@ def dashboard(role: str, response: Response, identity=Depends(workflow_identity)
             alerts=[alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
             docking_requests=enrich_docking_requests(s, [r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))]))
+        if role == 'logistics':
+            result['users'] = [dict(id=u['id'], name=u.get('name') or u['id']) for u in s['users']
+                               if u.get('company_id') == user['company_id'] and u['role'] == 'driver' and u['active']]
         if role=='port': result['audit']=s['audit']
         return result
 
