@@ -36,3 +36,13 @@ test('unknown destinations do not borrow Udupi navigation coordinates',()=> {
   assert.equal(row.dropoff,null)
   assert.deepEqual(row.location,[13,75])
 })
+
+test('approved reroute clears the stopped UI state despite the retained incident report',()=> {
+  const row=driverShipment(
+    {id:'S',truck_id:'T',quantity:3,destination:'Udupi',status:'in_transit',hazard_stopped:false},
+    {port:{name:'NMP',lat:12,lng:74},vehicles:[{id:'T',name:'Truck',lat:13,lng:75}],incidents:[{shipment_id:'S',status:'reported',description:'Flood'}]},
+    {name:'Driver'}
+  )
+  assert.equal(row.hazard_stopped,false)
+  assert.equal(row.status,'in transit')
+})
