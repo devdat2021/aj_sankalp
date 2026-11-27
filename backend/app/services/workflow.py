@@ -52,6 +52,98 @@ def pending(row):
     if row['status']!='pending': raise HTTPException(409, 'Request already decided')
 
 
+def eligibility(state, user, sid):
+    """Return pickup eligibility state for a consignment.
+
+    Fields:
+      - status: current cargo state
+      - vessel_arrived: vessel has arrived/docked
+      - unloaded: cargo has been unloaded
+      - ready_for_pickup: port has certified readiness
+      - truck_assigned: a truck is assigned
+      - truck_access_approved: approved truck_access request matches assigned truck
+      - pickup_allowed: all prerequisites satisfied for driver to record picked_up
+    """
+    from app.api.workflow import shipment as ship_func
+    sh = ship_func(state, user, sid)
+
+    role = user['role']
+    company_matches = bool(user.get('company_id')) and sh.get('company_id') == user['company_id']
+
+    # --- Basic fields ---
+    status = sh.get('status', '')
+    vessel_id = sh.get('vessel_id')
+    truck_id = sh.get('truck_id')
+
+    # --- Vessel arrival ---
+    vessel_arrived = False
+    if vessel_id:
+        # Check if vessel has recorded arrived/docked events for this consignment
+        vessel_events = [e for e in sh.get('events', []) if e.get('vessel_id') == vessel_id]
+        vessel_arrived = any(e.get('event') in ('arrived', 'docked') for e in vessel_events if isinstance(e, dict))
+
+    # --- Unloaded ---
+    unloaded = status == 'unloaded'
+
+    # --- Ready for pickup ---
+    ready_for_pickup = status == 'ready_for_pickup'
+
+    # --- Truck assignment ---
+    truck_assigned = truck_id is not None
+
+    # --- Truck access approved ---
+    truck_access_approved = False
+    if truck_assigned and company_matches:
+        truck_access_approved = any(
+            r.get('shipment_id') == sh['id']
+            and r.get('kind') == 'truck_access'
+            and r.get('status') == 'approved'
+            and r.get('truck_id') == truck_id
+            for r in state.get('port_requests', [])
+        )
+
+    # --- Pickup allowed: ready_for_pickup AND truck_access_approved AND unloaded ---
+    # Pickup is allowed only when all three prerequisites are met.
+    pickup_allowed = ready_for_pickup and truck_access_approved and unloaded
+
+    return {
+        'status': status,
+        'vessel_arrived': vessel_arrived,
+        'unloaded': unloaded,
+        'ready_for_pickup': ready_for_pickup,
+        'truck_assigned': truck_assigned,
+        'truck_access_approved': truck_access_approved,
+        'pickup_allowed': pickup_allowed,
+        'blocked_reason': _blocked_reason(
+            ready_for_pickup, truck_access_approved, unloaded,
+            status, truck_id, vessel_arrived
+        ),
+    }
+
+
+def _blocked_reason(ready_for_pickup, truck_access_approved, unloaded,
+                    status, truck_id, vessel_arrived):
+    """Return a human-readable reason why pickup is blocked."""
+    if ready_for_pickup and truck_access_approved and unloaded:
+        return None  # pickup allowed
+    reasons = []
+    if not unloaded:
+        reasons.append('cargo not unloaded')
+    if not ready_for_pickup:
+        reasons.append('port has not marked ready for pickup')
+    if not truck_access_approved:
+        reasons.append('truck access not approved')
+    if not truck_id:
+        reasons.append('no truck assigned')
+    elif not truck_access_approved:
+        reasons.append('truck access not approved for assigned truck')
+    if not vessel_arrived and truck_id:
+        reasons.append('vessel has not arrived/docked')
+    if not reasons and ready_for_pickup and truck_access_approved:
+        reasons.append('unknown block')
+    return '; '.join(reasons)
+
+
 def _event_id_from(event):
     """Preserve existing event ID when available, otherwise generate new one."""
     return event.get('id') or str(uuid4())

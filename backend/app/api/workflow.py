@@ -47,6 +47,13 @@ def get_shipment(id: str,user=Depends(current_user)):
         sh['history'] = consignment_history(s,user,id)
         return sh
 
+@router.get('/shipments/{id}/eligibility')
+def shipment_eligibility(id: str,user=Depends(current_user)):
+    with transaction() as s:
+        sh = shipment(s,user,id)
+        el = eligibility(s,user,id)
+        return el
+
 @router.post('/shipments',status_code=201)
 def create_shipment(body: Consignment,user=Depends(current_user)):
     require(user,'logistics')

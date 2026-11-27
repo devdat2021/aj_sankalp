@@ -46,6 +46,40 @@ export default function Cargo({ data, user, mutate }) {
           <Empty>No movement events recorded.</Empty>
         )}</details>
 
+      {/* Pickup eligibility */}
+      {user.role !== 'logistics' || sh.status === 'delivered' ? null : (
+        <details open>
+          <summary>Pickup eligibility</summary>
+          <div className="cw-card">
+            <div className="cw-row">
+              <span><strong>Status:</strong> {sh.status}</span>
+              <span><strong>Vessel arrived:</strong> {!!(sh.events?.some(e => e && e.event && /arrived|docked/.test(e.event)))}</span>
+              <span><strong>Unloaded:</strong> {sh.status === 'unloaded'}</span>
+              <span><strong>Ready for pickup:</strong> {sh.status === 'ready_for_pickup'}</span>
+            </div>
+            <div className="cw-row">
+              <span><strong>Truck assigned:</strong> {sh.truck_id || 'No'}</span>
+              <span><strong>Truck access approved:</strong> {(() => { const approved = sh.port_requests && sh.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access && r.status === 'approved' && r.truck_id === sh.truck_id); return approved ? 'Yes' : 'No'; })()}</span>
+              <span><strong>Pickup allowed:</strong> {(() => { const unloaded = sh.status === 'unloaded'; const ready = sh.status === 'ready_for_pickup'; const approved = sh.port_requests && sh.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access && r.status === 'approved' && r.truck_id === sh.truck_id); return unloaded && ready && approved ? 'Yes' : 'No'; })()}</span>
+            </div>
+            <div className="cw-muted tiny">
+              {(() => {
+                const unloaded = sh.status === 'unloaded';
+                const ready = sh.status === 'ready_for_pickup';
+                const approved = sh.port_requests && sh.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access && r.status === 'approved' && r.truck_id === sh.truck_id);
+                if (unloaded && ready && approved) return 'Pickup is allowed — all prerequisites satisfied.';
+                const blocks = [];
+                if (!unloaded) blocks.push('cargo not unloaded');
+                if (!ready) blocks.push('port has not marked ready for pickup');
+                if (!approved) blocks.push('truck access not approved for assigned truck');
+                if (blocks.length) return 'Blocked: ' + blocks.join(', ');
+                return '';
+              })()}
+            </div>
+          </div>
+        </details>
+      )}
+
       {/* Sea / port / road linkage summary */}
       {sh.vessel_id || sh.route_id || sh.truck_id ? (
         <div className="cw-card">
