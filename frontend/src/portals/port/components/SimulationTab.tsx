@@ -25,6 +25,7 @@ const DISRUPTION_TYPES = [
   { value: 'fuel_price_increase',  label: 'Fuel Price Increase' },
   { value: 'demand_spike',         label: 'Demand Spike' },
   { value: 'warehouse_disruption', label: 'Warehouse Disruption' },
+  { value: 'other',                label: 'Others' },
 ];
 
 const LOCATIONS = [
@@ -172,6 +173,15 @@ export default function SimulationTab({ ports, onSimulationComplete }: Simulatio
                     <option key={dt.value} value={dt.value}>{dt.label}</option>
                   ))}
                 </select>
+                {form.disruption_type === 'other' && (
+                  <input
+                    type="text"
+                    className="input-field mt-2"
+                    placeholder="Write disruption description…"
+                    value={(form as { description?: string }).description || ''}
+                    onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  />
+                )}
               </div>
 
               {/* Location */}

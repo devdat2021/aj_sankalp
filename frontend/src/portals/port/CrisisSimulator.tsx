@@ -4,11 +4,15 @@ import DashboardTab from './components/DashboardTab';
 import SimulationTab from './components/SimulationTab';
 import WhatIfTab from './components/WhatIfTab';
 import HistoryTab from './components/HistoryTab';
-import { getDashboardSummary, type DashboardSummary } from './services/crisisApi';
+import { getDashboardSummary, setCrisisToken, type DashboardSummary } from './services/crisisApi';
+// @ts-expect-error AuthContext is an untyped JS module
+import { useAuth } from '../../components/AuthContext';
 
 type Tab = 'dashboard' | 'simulate' | 'whatif' | 'history';
 
 export default function CrisisSimulator() {
+  const { token } = useAuth();
+  if (token) setCrisisToken(token);
   const [activeTab, setActiveTab] = useState<Tab>('simulate');
   const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);

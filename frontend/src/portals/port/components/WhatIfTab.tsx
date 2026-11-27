@@ -15,6 +15,7 @@ const DISRUPTION_TYPES = [
   { value: 'strike', label: 'Strike' },
   { value: 'vehicle_shortage', label: 'Vehicle Shortage' },
   { value: 'warehouse_disruption', label: 'Warehouse Disruption' },
+  { value: 'other', label: 'Others' },
 ];
 
 const LOCATIONS = [
@@ -175,6 +176,15 @@ export default function WhatIfTab() {
                     onChange={e => updateScenario(idx, 'disruption_type', e.target.value)}>
                     {DISRUPTION_TYPES.map(dt => <option key={dt.value} value={dt.value}>{dt.label}</option>)}
                   </select>
+                  {s.disruption_type === 'other' && (
+                    <input
+                      type="text"
+                      className="input-field text-xs mt-1.5"
+                      placeholder="Write disruption description…"
+                      value={(s as { description?: string }).description || ''}
+                      onChange={e => updateScenario(idx, 'description' as keyof typeof s, e.target.value)}
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="label">Location</label>
