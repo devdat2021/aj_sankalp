@@ -18,6 +18,8 @@ Interactive API contracts: http://127.0.0.1:8001/docs. Copy `.env.example` to `.
 
 ## Decision ownership
 
+The Phase 1 logistics ownership rules, existing data fields, shared event names and deferred contract questions are documented in [LOGISTICS_CONTRACT.md](LOGISTICS_CONTRACT.md).
+
 - Logistics creates consignments, assigns company trucks and routes, and approves driver reroutes. Ports and drivers cannot approve road changes.
 - Port Operations approves separate handling and truck-access requests, updates capacity, publishes warnings, and approves docking requests.
 - Captains request docking and record actual vessel departure, arrival and docking. Approval alone does not create a movement event.

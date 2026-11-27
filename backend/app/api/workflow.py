@@ -9,7 +9,8 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
 from app.services.port_service import find, audit, now
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes, slot_conflict, request_slot_revision, slot_conflict, request_slot_revision
+from copy import deepcopy
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
 
@@ -28,13 +29,14 @@ def dashboard(role: str,user=Depends(current_user)):
     if role not in {'port','logistics','driver','captain'}: raise HTTPException(404,'Unknown portal')
     require(user,role)
     with transaction() as s:
-        rows=[r for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
+        rows=[r | {'history': consignment_history(s,user,r['id']), 'eligibility': eligibility(s,user,r['id'])} for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
+        by_id={r['id']:r for r in rows}
         result=dict(user_id=user['id'],shipments=rows,port=s['port'],simulated=True,
-            vessels=[v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
-            vehicles=[v for v in s['vehicles'] if v['id'] in {r.get('truck_id') for r in rows} or (role=='logistics' and v['company_id']==user.get('company_id'))],
+            vessels=[logistics_vessel(v) if role=='logistics' else v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
+            vehicles=[v for v in s['vehicles'] if (v.get('company_id')==user['company_id'] if role=='logistics' else v['id'] in {r.get('truck_id') for r in rows})],
             incidents=[r for r in s['incidents'] if r['shipment_id'] in ids],
-            requests=[r for r in s['requests'] if r['shipment_id'] in ids],
-            alerts=[a for a in s['alerts'] if user['id'] in a['recipient_ids']],
+            requests=[route_request_view(r,by_id[r['shipment_id']]) for r in s['requests'] if r['shipment_id'] in ids],
+            alerts=[alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
             docking_requests=[r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))])
         if role=='port': result['audit']=s['audit']
@@ -42,7 +44,61 @@ def dashboard(role: str,user=Depends(current_user)):
 
 @router.get('/shipments/{id}')
 def get_shipment(id: str,user=Depends(current_user)):
-    with transaction() as s: return shipment(s,user,id)
+    with transaction() as s:
+        sh = shipment(s,user,id)
+        # Include slot conflict info for logistics view
+        el = eligibility(s,user,id)
+        slot_conflict_val = None
+        slot_timestamp_val = None
+        # Check for approved slot_revision or truck_access
+        truck_id = sh.get('truck_id')
+        if truck_id:
+            # Check for approved slot_revision matching the truck
+            for pr in s.get('port_requests', []):
+                if pr.get('shipment_id') == sh['id'] \
+                   and pr.get('kind') == 'slot_revision' \
+                   and pr.get('status') == 'approved' \
+                   and pr.get('truck_id') == truck_id:
+                    slot_timestamp_val = pr.get('slot_timestamp')
+                    # Check if slot is in the past with eta_hours > 0
+                    eta_hours = sh.get('eta_hours', 0)
+                    if slot_timestamp_val and eta_hours > 0:
+                        from datetime import datetime, timezone
+                        try:
+                            slot_dt = datetime.fromisoformat(slot_timestamp_val)
+                            if slot_dt < datetime.now(timezone.utc):
+                                slot_conflict_val = f'Slot {slot_timestamp_val} is in the past; ETA {eta_hours}h from creation would arrive later'
+                        except (ValueError, TypeError):
+                            pass
+                    break
+        # Also check if there's a direct slot_conflict from eligibility
+        if el.get('blocked_reason') and el.get('vessel_arrived'):
+            slot_conflict_val = el['blocked_reason']
+        return {**sh, 'history': consignment_history(s,user,id), 
+                'slot_conflict': slot_conflict_val, 
+                'slot_timestamp': slot_timestamp_val}
+
+@router.get('/shipments/{id}/eligibility')
+def shipment_eligibility(id: str,user=Depends(current_user)):
+    with transaction() as s:
+        el = eligibility(s,user,id)
+        return el
+
+@router.post('/shipments/{id}/slot-revision')
+def request_slot_revision_endpoint(id: str, body: dict, user=Depends(current_user)):
+    """Logistics requests a revised port pickup slot for a consignment.
+
+    Body: { "slot_timestamp": "2026-12-01T10:00:00Z" }
+    """
+    require(user,'logistics')
+    slot_timestamp = body.get('slot_timestamp')
+    if not slot_timestamp:
+        raise HTTPException(400, 'slot_timestamp is required')
+    with transaction() as s:
+        ok, reason = request_slot_revision(s,user,id, slot_timestamp)
+        if not ok:
+            raise HTTPException(409, reason)
+        return {'ok': True, 'reason': reason, 'status': 'pending'}
 
 @router.post('/shipments',status_code=201)
 def create_shipment(body: Consignment,user=Depends(current_user)):
@@ -57,11 +113,27 @@ def create_shipment(body: Consignment,user=Depends(current_user)):
 def assign(id: str,body: Assignment,user=Depends(current_user)):
     require(user,'logistics')
     with transaction() as s:
+        ok, reason = assign_eligible(s,user,id)
+        if not ok:
+            raise HTTPException(409, reason)
         row=shipment(s,user,id); truck=find(s,'vehicles',body.truck_id)
         if truck['company_id']!=user['company_id']: raise HTTPException(404,'Truck not found')
         if row['status'] in {'in_transit','delivered'}: raise HTTPException(409,'Trip already started')
+        old_truck_id = row.get('truck_id')
+        if old_truck_id != truck['id'] or row.get('route') != body.route.model_dump():
+            supersede_routes(s,row,'Truck or approved route changed. Submit a fresh proposal.')
+            row['assignment_version'] = row.get('assignment_version',0) + 1
         row.update(truck_id=truck['id'],route_id=body.route.id,route=body.route.model_dump())
-        audit(s,user,'truck_assigned',id); notify(s,'Truck and route assigned: '+id,[row]); return row
+        # Preserve assignment history via audit
+        if old_truck_id and old_truck_id != truck['id']:
+            audit(s,user,'truck_reassigned',id)
+        else:
+            audit(s,user,'truck_assigned',id)
+        # Invalidate any prior truck_access approvals for a different truck
+        for pr in s.get('port_requests', []):
+            if pr.get('shipment_id') == id and pr.get('kind') == 'truck_access' and pr.get('status') == 'approved' and pr.get('truck_id') != truck['id']:
+                pr['status'] = 'revoked'
+        notify(s,'Truck and route assigned: '+id,[row]); return row
 
 @router.get('/incidents')
 def incidents(user=Depends(current_user)):
@@ -86,8 +158,8 @@ def review(id: str,body: Review,user=Depends(authority)):
 @router.get('/route-requests')
 def requests(user=Depends(current_user)):
     with transaction() as s:
-        ids={r['id'] for r in s['shipments'] if visible(user,r)}
-        return [r for r in s['requests'] if r['shipment_id'] in ids]
+        rows={r['id']:r for r in s['shipments'] if visible(user,r)}
+        return [route_request_view(r,rows[r['shipment_id']]) for r in s['requests'] if r['shipment_id'] in rows]
 
 @router.post('/route-requests',status_code=201)
 def request_route(body: RouteRequest,user=Depends(current_user)):
@@ -96,8 +168,13 @@ def request_route(body: RouteRequest,user=Depends(current_user)):
         sh=shipment(s,user,body.shipment_id)
         if sh['status']=='delivered': raise HTTPException(409,'Consignment delivered')
         if len({o.id for o in body.options})!=len(body.options): raise HTTPException(422,'Option IDs must be unique')
-        if any(r['shipment_id']==sh['id'] and r['status']=='pending' for r in s['requests']): raise HTTPException(409,'Pending reroute exists')
-        row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],requester_id=user['id'],status='pending',created_at=now())
+        for existing in s['requests']:
+            if existing['shipment_id']==sh['id'] and existing['status']=='pending':
+                reason=reroute_block(existing,sh)
+                if not reason: raise HTTPException(409,'Pending reroute exists')
+                existing.update(status='superseded',superseded_reason=reason,superseded_at=now())
+        row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],requester_id=user['id'],status='pending',created_at=now(),
+            truck_id=sh.get('truck_id'),assignment_version=sh.get('assignment_version',0),base_route_id=sh.get('route_id'),base_route=deepcopy(sh.get('route')),base_eta_hours=sh['eta_hours'])
         s['requests'].append(row); notify(s,'Reroute requested: '+sh['id'],[sh]); return row
 
 @router.patch('/route-requests/{id}')
@@ -105,11 +182,18 @@ def decide(id: str,body: Decision,user=Depends(current_user)):
     require(user,'logistics')
     with transaction() as s:
         row=find(s,'requests',id); sh=shipment(s,user,row['shipment_id']); pending(row)
+        blocked=reroute_block(row,sh)
+        if blocked: raise HTTPException(409,blocked)
+        row['previous_route']=deepcopy(sh.get('route'))
+        row['eta_before_hours']=sh['eta_hours']
         if body.status=='approved':
             option=next((o for o in row['options'] if o['id']==body.option_id),None)
             if option is None: raise HTTPException(422,'Choose a valid option')
-            sh.update(route_id=option['id'],route=option); sh['eta_hours']+=option['delay_hours']
-        row.update(body.model_dump()); row.update(reviewer=user['id'],reviewed_at=now())
+            sh.update(route_id=option['id'],route=deepcopy(option)); sh['eta_hours']+=option['delay_hours']
+            sh['assignment_version']=sh.get('assignment_version',0)+1
+        row['eta_after_hours']=sh['eta_hours']
+        row.update(status=body.status, option_id=body.option_id if body.status=='approved' else None,
+                   decision_reason=body.reason, reviewer=user['id'], reviewed_at=now())
         notify(s,f"{sh['id']}: reroute {body.status}. {body.reason}",[sh],event_key=id+':decision'); audit(s,user,body.status,id); return row
 
 @router.get('/ports/{id}/capacity')
@@ -163,7 +247,7 @@ def approve_port(id: str,body: Approval,user=Depends(authority)):
 
 @router.get('/alerts')
 def alerts(user=Depends(current_user)):
-    with transaction() as s: return [a for a in s['alerts'] if user['id'] in a['recipient_ids']]
+    with transaction() as s: return [alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']]
 
 @router.post('/alerts',status_code=201)
 def warning(body: Warning,user=Depends(authority)):
@@ -177,7 +261,7 @@ def read_alert(id: str,user=Depends(current_user)):
         row=find(s,'alerts',id)
         if user['id'] not in row['recipient_ids']: raise HTTPException(404,'Alert not found')
         if user['id'] not in row['read_by']: row['read_by'].append(user['id'])
-        return row
+        return alert_view(user,row)
 
 @router.post('/tracking/location')
 def tracking(body: Position,user=Depends(current_user)):
@@ -273,6 +357,7 @@ def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
             if sh.get('cold_reserved'):
                 s['port']['cold_occupied']=max(0,s['port']['cold_occupied']-sh['quantity']); sh['cold_reserved']=False
         sh['status']=after
+        if after=='delivered': supersede_routes(s,sh,'Consignment delivered; no further route changes are allowed.')
         event=dict(id=str(uuid4()),event=body.event,created_at=now(),actor=user['id'])
         sh['events'].append(event); notify(s,id+': '+body.event,[sh],event_key=event['id']); audit(s,user,body.event,id); return sh
 

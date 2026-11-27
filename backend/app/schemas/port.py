@@ -3,6 +3,7 @@ from typing import Literal
 class Review(BaseModel):
     status: Literal['confirmed','rejected','resolved']
 class Decision(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     status: Literal['approved','rejected']
     option_id: str | None = None
     reason: str = Field(min_length=3,max_length=500)
