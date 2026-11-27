@@ -336,6 +336,33 @@ def run_simulation(db: Session, scenario: Dict[str, Any]) -> Dict[str, Any]:
     db.add_all(strategies)
     db.commit()
 
+    try:
+        from app.core.config import settings
+        if settings.mongodb_uri:
+            from app.database.connection import get_mongo_db
+            get_mongo_db().crisis_simulations.replace_one(
+                {"_id": sim_id},
+                {
+                    "_id": sim_id,
+                    "simulation_id": sim_id,
+                    "scenario_name": sim_run.scenario_name,
+                    "disruption_type": disruption_type,
+                    "location": location,
+                    "duration_hours": duration_hours,
+                    "severity": severity,
+                    "total_affected_shipments": total_affected,
+                    "total_cargo_value_exposed": round(total_cargo_value, 2),
+                    "average_delay_hours": round(avg_delay, 2),
+                    "high_priority_affected": high_priority_count,
+                    "cold_chain_at_risk": cold_chain_count,
+                    "recommended_strategy": sim_run.recommended_strategy,
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+                upsert=True,
+            )
+    except Exception as exc:
+        logger.warning(f"[{sim_id}] MongoDB simulation sync skipped: {exc}")
+
     logger.info(
         f"[{sim_id}] Simulation complete: {total_affected} affected, "
         f"₹{total_cargo_value:,.0f} exposed, avg delay {avg_delay:.1f}h"

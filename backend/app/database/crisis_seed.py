@@ -595,6 +595,103 @@ def generate_iot_readings(db: Session, shipments: list, count: int = 500):
     db.flush()
 
 
+def sync_crisis_seed_to_mongodb(db: Session):
+    """Mirror synthetic crisis simulator dataset into MongoDB collections if configured and not yet populated."""
+    from app.core.config import settings
+    if not settings.mongodb_uri:
+        return
+    try:
+        from app.database.connection import get_mongo_db
+        mdb = get_mongo_db()
+        if mdb.crisis_ports.count_documents({}) == 0:
+            ports_docs = [
+                {
+                    "_id": p.port_id,
+                    "port_id": p.port_id,
+                    "name": p.name,
+                    "city": p.city,
+                    "state": p.state,
+                    "country": p.country,
+                    "latitude": p.latitude,
+                    "longitude": p.longitude,
+                    "capacity": p.capacity,
+                    "current_load": p.current_load,
+                    "congestion": p.congestion,
+                    "operational_status": p.operational_status,
+                    "annual_throughput": p.annual_throughput,
+                    "has_cold_storage": bool(p.has_cold_storage),
+                    "cold_storage_capacity": p.cold_storage_capacity or 0,
+                }
+                for p in db.query(Port).all()
+            ]
+            if ports_docs:
+                mdb.crisis_ports.insert_many(ports_docs)
+
+        if mdb.crisis_warehouses.count_documents({}) == 0:
+            wh_docs = [
+                {
+                    "_id": w.warehouse_id,
+                    "warehouse_id": w.warehouse_id,
+                    "name": w.name,
+                    "city": w.city,
+                    "state": w.state,
+                    "latitude": w.latitude,
+                    "longitude": w.longitude,
+                    "capacity": w.capacity,
+                    "current_utilization": w.current_utilization,
+                    "has_cold_storage": bool(w.has_cold_storage),
+                    "cold_storage_capacity": w.cold_storage_capacity or 0,
+                    "operational_status": w.operational_status,
+                }
+                for w in db.query(Warehouse).all()
+            ]
+            if wh_docs:
+                mdb.crisis_warehouses.insert_many(wh_docs)
+
+        if mdb.crisis_routes.count_documents({}) == 0:
+            route_docs = [
+                {
+                    "_id": r.route_id,
+                    "route_id": r.route_id,
+                    "name": r.name,
+                    "origin": r.origin,
+                    "destination": r.destination,
+                    "origin_port_id": r.origin_port_id,
+                    "dest_port_id": r.dest_port_id,
+                    "distance_km": r.distance_km,
+                    "normal_time_hours": r.normal_time_hours,
+                    "transport_mode": r.transport_mode,
+                    "congestion": r.congestion,
+                    "risk_score": r.risk_score,
+                    "cost_per_km": r.cost_per_km,
+                    "is_active": bool(r.is_active),
+                }
+                for r in db.query(Route).all()
+            ]
+            if route_docs:
+                mdb.crisis_routes.insert_many(route_docs)
+
+        if mdb.crisis_fleet.count_documents({}) == 0:
+            fleet_docs = [
+                {
+                    "_id": f.vehicle_id,
+                    "vehicle_id": f.vehicle_id,
+                    "vehicle_type": f.vehicle_type,
+                    "carrier": f.carrier,
+                    "current_location": f.current_location,
+                    "capacity_kg": f.capacity_kg,
+                    "is_refrigerated": bool(f.is_refrigerated),
+                    "availability": bool(f.availability),
+                    "utilization": f.utilization,
+                }
+                for f in db.query(Fleet).all()
+            ]
+            if fleet_docs:
+                mdb.crisis_fleet.insert_many(fleet_docs)
+    except Exception as exc:
+        print(f"[WARN] Could not sync crisis dataset to MongoDB: {exc}")
+
+
 def seed_database():
     """Main function: initialise DB and seed all data."""
     print("Initializing database...")
@@ -604,6 +701,7 @@ def seed_database():
     try:
         # Check if already seeded
         if db.query(Port).count() > 0:
+            sync_crisis_seed_to_mongodb(db)
             return  # Preserve existing data and simulation history.
 
         print("Seeding ports...")
@@ -638,6 +736,7 @@ def seed_database():
         generate_iot_readings(db, shipments, count=500)
 
         db.commit()
+        sync_crisis_seed_to_mongodb(db)
         print(f"\n[OK] Dataset generation complete!")
         print(f"   Ports:         {db.query(Port).count()}")
         print(f"   Warehouses:    {db.query(Warehouse).count()}")

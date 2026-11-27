@@ -5,7 +5,50 @@ const route = f => ({ id: crypto.randomUUID(), name: f.route_name, delay_hours: 
 
 export default function Cargo({ data, user, mutate }) {
   const logistics = user.role === 'logistics'
+  const portOp = user.role === 'port'
   return <div className="cw-stack">
+    {portOp && data.vessels?.length > 0 && (
+      <section className="cw-card">
+        <h2>Vessel manifests</h2>
+        <p className="cw-muted">Cargo manifests for incoming and docked vessels, with unloading and pickup readiness controls.</p>
+        <div className="cw-stack">
+          {data.vessels.map(v => {
+            const manifest = data.shipments.filter(sh => sh.vessel_id === v.id)
+            return (
+              <div key={v.id} className="cw-card">
+                <div className="cw-row">
+                  <div><small>{v.id}</small><h3>{v.name}</h3></div>
+                  <Badge>{v.movement_status || v.status}</Badge>
+                </div>
+                <p className="cw-muted">{v.source || 'Source port'} → {data.port.name}{v.eta ? ` · ETA ${v.eta}` : ''}</p>
+                {!manifest.length ? <Empty>No consignments on this vessel.</Empty> : (
+                  <div className="cw-stack">
+                    {manifest.map(sh => (
+                      <div key={sh.id} className="cw-row">
+                        <div>
+                          <strong>{sh.id} · {sh.cargo}</strong>
+                          <p className="cw-muted">
+                            {sh.quantity} t · {sh.requires_cold ? `Cold chain (${sh.temperature}°C / max ${sh.max_temperature}°C)` : 'Standard handling'} · {sh.origin || 'Source port'} → {sh.destination}
+                          </p>
+                        </div>
+                        <div className="cw-actions">
+                          <Badge>{sh.status}</Badge>
+                          {['at_port', 'unloaded'].includes(sh.status) && (
+                            <ActionButton action={() => mutate(`/shipments/${sh.id}/events`, 'POST', { event: sh.status === 'at_port' ? 'unloaded' : 'ready_for_pickup' })}>
+                              {sh.status === 'at_port' ? 'Confirm cargo unloaded' : 'Mark ready for pickup'}
+                            </ActionButton>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </section>
+    )}
     {logistics && <section className="cw-card"><h2>New consignment</h2><p>Register cargo, then request handling and assign a truck.</p>
       <ActionForm label="Create consignment" reset submit={f => mutate('/shipments', 'POST', { cargo: f.cargo, quantity: Number(f.quantity), origin: f.origin, destination: f.destination, port_id: data.port.id, vessel_id: f.vessel_id || null, requires_cold: f.requires_cold === 'yes', temperature: Number(f.temperature), max_temperature: Number(f.max_temperature), eta_hours: Number(f.eta_hours) })}>
         <Field label="Cargo description" name="cargo" maxLength={200} /><Field label="Quantity (tonnes)" name="quantity" type="number" min="0.01" step="any" />

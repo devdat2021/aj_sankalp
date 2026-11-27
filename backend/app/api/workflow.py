@@ -8,7 +8,7 @@ from app.schemas.port import Review, Decision, Scenario, Incident
 from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
-from app.services.port_service import find, audit, now
+from app.services.port_service import find, audit, now, evaluate_docking_request, enrich_docking_requests, get_vessel_cargo
 from app.services.workflow import require, visible, shipment, notify, pending, port, vessel
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
@@ -36,7 +36,7 @@ def dashboard(role: str,user=Depends(current_user)):
             requests=[r for r in s['requests'] if r['shipment_id'] in ids],
             alerts=[a for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
-            docking_requests=[r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))])
+            docking_requests=enrich_docking_requests(s, [r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))]))
         if role=='port': result['audit']=s['audit']
         return result
 
@@ -122,11 +122,18 @@ def set_capacity(id: str,body: Capacity,user=Depends(authority)):
     if body.occupied_berths>body.berths or body.cold_occupied>body.cold_capacity: raise HTTPException(422,'Occupancy exceeds capacity')
     with transaction() as s:
         row=port(s,id)
+        yard_cap = body.yard_capacity if body.yard_capacity is not None else row.get('yard_capacity', 1000)
+        yard_occ = body.yard_occupied if body.yard_occupied is not None else row.get('yard_occupied', 0)
+        hand_cap = body.handling_capacity if body.handling_capacity is not None else row.get('handling_capacity', 500)
+        hand_occ = body.handling_occupied if body.handling_occupied is not None else row.get('handling_occupied', 0)
+        if yard_occ > yard_cap or hand_occ > hand_cap:
+            raise HTTPException(422,'Occupancy exceeds capacity')
         reserved=sum(sh['quantity'] for sh in s['shipments'] if sh.get('cold_reserved') and sh['port_id']==id)
         docks=[r for r in s['docking_requests'] if r['status']=='approved' and r['port_id']==id]
         if body.cold_occupied<reserved or body.occupied_berths<len(docks): raise HTTPException(409,'Occupancy cannot drop below active reservations')
         if any(int(r['berth'][1:])>body.berths for r in docks): raise HTTPException(409,'An active berth would be removed')
-        row.update(body.model_dump()); audit(s,user,'capacity_updated',id); return row
+        updates = body.model_dump(exclude_none=True)
+        row.update(updates); audit(s,user,'capacity_updated',id); return row
 
 @router.post('/port-requests',status_code=201)
 def request_port(body: PortRequest,user=Depends(current_user)):
@@ -149,7 +156,9 @@ def port_requests(user=Depends(current_user)):
 @router.patch('/port-requests/{id}')
 def approve_port(id: str,body: Approval,user=Depends(authority)):
     with transaction() as s:
-        row=find(s,'port_requests',id); sh=shipment(s,user,row['shipment_id']); pending(row); p=port(s,row['port_id'])
+        row=find(s,'port_requests',id); sh=shipment(s,user,row['shipment_id'])
+        if row['status'] not in {'pending', 'slot_suggested'}: raise HTTPException(409,'Request already decided')
+        p=port(s,row['port_id'])
         if body.status=='approved':
             if not body.slot: raise HTTPException(422,'Approved slot required')
             if p['status']=='closed': raise HTTPException(409,'Port closed')
@@ -158,8 +167,16 @@ def approve_port(id: str,body: Approval,user=Depends(authority)):
                 if sh.get('cold_reserved'): raise HTTPException(409,'Capacity already reserved')
                 if p['cold_occupied']+sh['quantity']>p['cold_capacity']: raise HTTPException(409,'Insufficient cold capacity')
                 p['cold_occupied']+=sh['quantity']; sh['cold_reserved']=True
-        row.update(body.model_dump(mode='json')); row.update(reviewer=user['id'],reviewed_at=now())
-        notify(s,'Port '+row['kind']+' '+body.status+': '+sh['id'],[sh],event_key=id+':decision'); audit(s,user,body.status,id); return row
+            row.update(body.model_dump(mode='json', exclude_none=True))
+        elif body.status=='slot_suggested':
+            payload = body.model_dump(mode='json', exclude_none=True)
+            payload.pop('slot', None)
+            row.update(payload)
+            row['suggested_slot'] = dict(start=payload['suggested_start'], end=payload['suggested_end'])
+        else:
+            row.update(body.model_dump(mode='json', exclude_none=True))
+        row.update(reviewer=user['id'],reviewed_at=now())
+        notify(s,'Port '+row['kind']+' '+body.status+': '+sh['id'],[sh],event_key=id+':'+body.status); audit(s,user,body.status,id); return row
 
 @router.get('/alerts')
 def alerts(user=Depends(current_user)):
@@ -199,38 +216,59 @@ def request_dock(body: DockRequest,user=Depends(current_user)):
     require(user,'captain')
     with transaction() as s:
         vessel(s,user,body.vessel_id); port(s,body.port_id)
-        if any(r['vessel_id']==body.vessel_id and r['status'] in {'pending','approved'} for r in s['docking_requests']): raise HTTPException(409,'Active docking request exists')
-        cargo=[r for r in s['shipments'] if r.get('vessel_id')==body.vessel_id and r['port_id']==body.port_id and r['status'] not in {'delivered','in_transit'}]
-        row=body.model_dump(mode='json') | dict(id=str(uuid4()),status='pending',requester_id=user['id'],created_at=now(),priority=1 if any(r['requires_cold'] for r in cargo) else 0,priority_reason='Refrigerated cargo' if any(r['requires_cold'] for r in cargo) else 'Standard cargo')
+        if any(r['vessel_id']==body.vessel_id and r['status'] in {'pending','slot_suggested','approved'} for r in s['docking_requests']): raise HTTPException(409,'Active docking request exists')
+        cargo=get_vessel_cargo(s,body.vessel_id,body.port_id)
+        row=body.model_dump(mode='json') | dict(id=str(uuid4()),status='pending',requester_id=user['id'],created_at=now(),priority=1 if any(r['requires_cold'] for r in cargo) else 0)
+        evaluated=evaluate_docking_request(s,row)
+        row['priority_score']=evaluated['priority_score']
+        row['priority_reason']=evaluated['priority_reason']
         s['docking_requests'].append(row)
         notice=notify(s,'Docking requested: '+body.vessel_id,cargo)
         notice['recipient_ids']=sorted(set(notice['recipient_ids']) | {user['id']} | {u['id'] for u in s['users'] if u['active'] and u['role']=='port' and u.get('port_id')==body.port_id})
-        return row
+        return evaluated
 
 @router.get('/docking-requests')
 def docking_requests(user=Depends(current_user)):
     require(user,'port','captain')
     with transaction() as s:
-        return sorted([r for r in s['docking_requests'] if (user['role']=='port' and r['port_id']==user['port_id']) or (user['role']=='captain' and r['vessel_id']==user['asset_id'])],key=lambda r:(-r['priority'],r['created_at']))
+        filtered=[r for r in s['docking_requests'] if (user['role']=='port' and r['port_id']==user['port_id']) or (user['role']=='captain' and r['vessel_id']==user['asset_id'])]
+        return enrich_docking_requests(s,filtered)
 
 @router.patch('/docking-requests/{id}')
 def approve_dock(id: str,body: DockApproval,user=Depends(authority)):
     with transaction() as s:
         row=find(s,'docking_requests',id)
         if row['port_id']!=user['port_id']: raise HTTPException(404,'Docking request not found')
-        pending(row); p=port(s,row['port_id'])
-        cargo=[r for r in s['shipments'] if r.get('vessel_id')==row['vessel_id'] and r['port_id']==row['port_id'] and r['status'] not in {'delivered','in_transit'}]
+        if row['status'] not in {'pending','slot_suggested'}: raise HTTPException(409,'Request already decided')
+        p=port(s,row['port_id'])
+        cargo=get_vessel_cargo(s,row['vessel_id'],row['port_id'])
         if body.status=='approved':
             if not body.slot or not body.berth: raise HTTPException(422,'Berth and slot required')
             if body.berth not in {f'B{i}' for i in range(1,p['berths']+1)}: raise HTTPException(422,'Unknown berth; use B1 through configured berth count')
             if p['status']!='open' or p['occupied_berths']>=p['berths']: raise HTTPException(409,'No available berth or port restricted')
             if any(r['status']=='approved' and r.get('berth')==body.berth for r in s['docking_requests']): raise HTTPException(409,'Berth reserved')
             if any(not any(a['shipment_id']==sh['id'] and a['kind']=='handling' and a['status']=='approved' for a in s['port_requests']) for sh in cargo): raise HTTPException(409,'Cargo handling approval required')
+            requires_cold=any(sh.get('requires_cold') for sh in cargo)
+            cold_berths=set(p.get('cold_berths',[f'B{i}' for i in range(5,p['berths']+1)]))
+            if requires_cold and body.berth not in cold_berths: raise HTTPException(409,'Selected berth is not compatible with refrigerated cargo')
+            total_qty=sum(sh.get('quantity',0) for sh in cargo)
+            if p.get('handling_occupied',0)+total_qty>p.get('handling_capacity',500): raise HTTPException(409,'Insufficient cargo handling capacity')
+            unreserved_cold=sum(sh.get('quantity',0) for sh in cargo if sh.get('requires_cold') and not sh.get('cold_reserved'))
+            if p['cold_occupied']+unreserved_cold>p['cold_capacity']: raise HTTPException(409,'Insufficient cold-storage capacity')
             p['occupied_berths']+=1
-        row.update(body.model_dump(mode='json')); row.update(reviewer=user['id'],reviewed_at=now())
-        notice=notify(s,'Docking '+body.status+': '+row['vessel_id'],cargo,event_key=id+':decision')
+            row.update(body.model_dump(mode='json',exclude_none=True))
+        elif body.status=='slot_suggested':
+            payload=body.model_dump(mode='json',exclude_none=True)
+            payload.pop('slot',None)
+            payload.pop('berth',None)
+            row.update(payload)
+            row['suggested_slot']=dict(start=payload['suggested_start'],end=payload['suggested_end'])
+        else:
+            row.update(body.model_dump(mode='json',exclude_none=True))
+        row.update(reviewer=user['id'],reviewed_at=now())
+        notice=notify(s,'Docking '+body.status+': '+row['vessel_id'],cargo,event_key=id+':'+body.status)
         if row['requester_id'] not in notice['recipient_ids']: notice['recipient_ids'].append(row['requester_id'])
-        audit(s,user,body.status,id); return row
+        audit(s,user,body.status,id); return evaluate_docking_request(s,row)
 
 @router.post('/vessels/{id}/events')
 def vessel_event(id: str,body: Milestone,user=Depends(current_user)):

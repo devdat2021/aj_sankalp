@@ -1,7 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict, AwareDatetime, field_validator
-from datetime import timezone
+from pydantic import BaseModel, Field, ConfigDict, AwareDatetime, field_validator, model_validator
 
 class Input(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
@@ -65,9 +64,20 @@ class DockRequest(Input):
     eta: AwareDatetime
 
 class Approval(Input):
-    status: Literal['approved', 'rejected']
+    status: Literal['approved', 'rejected', 'slot_suggested']
     reason: str = Field(min_length=3, max_length=500)
     slot: AwareDatetime | None = None
+    suggested_start: AwareDatetime | None = None
+    suggested_end: AwareDatetime | None = None
+
+    @model_validator(mode='after')
+    def validate_slot_window(self):
+        if self.status == 'slot_suggested':
+            if not self.suggested_start or not self.suggested_end:
+                raise ValueError('suggested_start and suggested_end are required when suggesting an alternative slot')
+            if self.suggested_end <= self.suggested_start:
+                raise ValueError('suggested_end must be after suggested_start')
+        return self
 
 class DockApproval(Approval):
     berth: str | None = None
@@ -78,6 +88,10 @@ class Capacity(Input):
     occupied_berths: int = Field(ge=0)
     cold_capacity: float = Field(ge=0)
     cold_occupied: float = Field(ge=0)
+    yard_capacity: float | None = Field(default=None, ge=0)
+    yard_occupied: float | None = Field(default=None, ge=0)
+    handling_capacity: float | None = Field(default=None, ge=0)
+    handling_occupied: float | None = Field(default=None, ge=0)
 
 class Position(Input):
     lat: float = Field(ge=-90, le=90)
