@@ -1,0 +1,10 @@
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+body { margin: 0; }
+
+.portal-nav { display:flex; gap:24px; padding:14px 24px; background:#102d40; font:600 14px 'Segoe UI',sans-serif; }
+.portal-nav a { color:white; text-decoration:none; }
+.portal-nav a:hover { text-decoration:underline; }
+.portal-home { max-width:960px; margin:70px auto; padding:24px; font-family:'Segoe UI',sans-serif; color:#142f42; }
+.portal-links { display:flex; flex-wrap:wrap; gap:24px; margin:32px 0; }
+.portal-links a { flex:1; min-width:220px; padding:28px; border:1px solid #c9d5df; border-radius:12px; color:#087e8b; text-decoration:none; background:#f3f6f8; }

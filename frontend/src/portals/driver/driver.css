@@ -1,0 +1,119 @@
+/* Fleet Cockpit: all selectors are scoped to the driver portal or its dialogs. */
+.driver-portal { --navy:#152e42; --teal:#087f86; --muted:#586e7d; --border:#dbe4e9; color:#1e3446; background:#f3f6f8; font:14px/1.5 'Segoe UI',Inter,sans-serif; height:100dvh; min-height:600px; display:flex; flex-direction:column; }
+.driver-portal *, .driver-dialog * { box-sizing:border-box; }
+.driver-portal :is(h1,h2,h3,p), .driver-dialog h2 { margin:0; }
+.driver-portal a { color:inherit; text-decoration:none; }
+.driver-portal button, .driver-dialog button { font:inherit; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid #d8e1e6; background:white; color:inherit; border-radius:8px; padding:11px 14px; min-height:48px; font-weight:600; }
+.driver-portal button:hover:not(:disabled), .driver-dialog button:hover:not(:disabled) { background:#edf4f5; }
+.driver-portal button:disabled, .driver-dialog button:disabled { opacity:.5; cursor:default; }
+.driver-portal :focus-visible, .driver-dialog :focus-visible { outline:3px solid #20aab4; outline-offset:3px; }
+.driver-portal svg, .driver-dialog svg { flex-shrink:0; }
+.driver-portal .cockpit-header { height:72px; flex-shrink:0; background:var(--navy); color:white; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:0 26px; }
+.driver-portal .brand { display:flex; align-items:center; gap:11px; font-size:22px; font-weight:700; letter-spacing:-.6px; }
+.driver-portal .brand-icon { display:flex; padding:9px; color:#6bd5d0; border:1px solid #396273; background:#214657; border-radius:10px; }
+.driver-portal .brand-sub { display:block; font-size:8px; letter-spacing:1.4px; font-weight:500; color:#b2cad5; margin-top:1px; }
+.driver-portal .workspace-label { display:flex; gap:8px; align-items:center; color:#b6ccd7; font-size:13px; margin-right:auto; padding-left:24px; border-left:1px solid #365060; }
+.driver-portal .header-right { display:flex; align-items:center; gap:24px; }
+.driver-portal .demo-badge { font-size:10px; letter-spacing:1px; font-weight:600; display:flex; align-items:center; gap:8px; padding:7px 10px; background:#254655; border:1px solid #3a5968; border-radius:5px; }
+.driver-portal .demo-badge i, .driver-portal .online-dot { width:7px; height:7px; background:#41baa4; border-radius:50%; display:inline-block; flex-shrink:0; }
+.driver-portal .driver-profile { display:flex; align-items:center; gap:12px; border-left:1px solid #365060; padding-left:24px; text-align:right; }
+.driver-portal .driver-profile strong { display:block; font-size:13px; font-weight:600; }
+.driver-portal .driver-profile small { display:block; color:#b2cad5; font-size:11px; }
+.driver-portal .avatar { display:grid; place-items:center; width:38px; height:38px; background:#365563; border:1px solid #597383; border-radius:50%; font-size:12px; font-weight:600; }
+.driver-portal .demo-ribbon { background:#eaf0f3; border-bottom:1px solid var(--border); color:#546b7b; font-size:11px; text-align:center; padding:7px 12px; flex-shrink:0; }
+.driver-portal .demo-ribbon strong { font-weight:600; margin-left:5px; }
+.driver-portal .cockpit-body { display:grid; grid-template-columns:340px minmax(0,1fr); grid-template-rows:minmax(0,1fr) 76px; flex:1; min-height:0; position:relative; }
+.driver-portal .trip-rail { grid-row:1 / 3; display:flex; flex-direction:column; min-height:0; background:#fff; border-right:1px solid var(--border); z-index:3; }
+.driver-portal .sheet-toggle { display:none; }
+.driver-portal .rail-tabs { display:flex; gap:4px; padding:12px 16px; border-bottom:1px solid var(--border); flex-shrink:0; background:#fff; }
+.driver-portal .rail-tabs button { flex:1; min-width:0; padding:9px 6px; border:0; color:#607684; font-size:13px; gap:6px; }
+.driver-portal .rail-tabs button[aria-pressed=true] { background:#e9f5f4; color:#087b80; }
+.driver-portal .unread-count { font-size:10px; font-weight:700; padding:1px 5px; border-radius:4px; background:#e4ebef; color:#536b7b; }
+.driver-portal .rail-content { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+.driver-portal .driver-card { padding:22px; background:white; }
+.driver-portal .section-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:18px; }
+.driver-portal h2, .driver-dialog h2 { font-size:16px; font-weight:650; display:flex; gap:8px; align-items:center; }
+.driver-portal h3 { font-size:14px; font-weight:650; }
+.driver-portal .eyebrow { font-size:10px; font-weight:700; color:var(--teal); letter-spacing:1.4px; }
+.driver-portal .badge { display:inline-flex; align-items:center; gap:4px; padding:4px 7px; border-radius:5px; font-size:10px; font-weight:600; white-space:nowrap; }
+.driver-portal .success { background:#e6f4ef; color:#197c65; }
+.driver-portal .neutral { background:#edf2f5; color:#566e7d; }
+.driver-portal .preview-badge { background:#e5edf4; color:#183451; }
+.driver-portal .muted, .driver-dialog .muted { color:#586e7d; font-size:12px; }
+.driver-portal .field-label { display:flex; align-items:center; gap:5px; font-size:10px; font-weight:600; color:#627684; letter-spacing:.7px; }
+.driver-portal .destination-heading h2 { font-size:24px; line-height:1.2; letter-spacing:-.6px; margin:7px 0 5px; }
+.driver-portal .shipment-metrics { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:22px; }
+.driver-portal .shipment-metrics small { font-size:10px; font-weight:600; color:#637986; letter-spacing:.5px; }
+.driver-portal .shipment-metrics strong { display:block; font-size:24px; line-height:1.3; margin-top:4px; font-weight:650; letter-spacing:-.6px; }
+.driver-portal .temperature { display:flex; align-items:center; gap:12px; background:#edf8f5; border:1px solid #d6ebe3; padding:13px; border-radius:8px; margin-top:18px; color:#176e60; }
+.driver-portal .temperature strong { font-size:23px; letter-spacing:-.4px; }
+.driver-portal .temperature .badge { background:white; border:1px solid #d5e8e0; font-size:10px; margin-left:4px; vertical-align:middle; letter-spacing:0; }
+.driver-portal .temperature p { font-size:11px; color:#437568; margin-top:2px; }
+.driver-portal .journey { display:flex; gap:11px; align-items:flex-start; margin-top:20px; }
+.driver-portal .stop-dot { width:10px; height:10px; border:2px solid #587485; border-radius:50%; margin-top:5px; }
+.driver-portal .journey strong { display:block; font-size:13px; margin-top:3px; }
+.driver-portal .cargo-details { display:flex; gap:10px; background:#f5f7f9; border:1px solid #e6ecef; padding:12px; margin-top:16px; border-radius:7px; }
+.driver-portal .cargo-details svg { color:#627b8c; margin-top:2px; }
+.driver-portal .cargo-details strong { font-size:12px; }.driver-portal .cargo-details p { font-size:12px; color:#526b7b; margin-top:3px; }.driver-portal .cargo-details small { color:#627684; font-size:11px; }
+.driver-portal .fine-print, .driver-dialog .fine-print { color:#607684; font-size:11px; margin-top:12px!important; }
+.driver-portal .routes-section { border-top:1px solid var(--border); }
+.driver-portal .route-comparison .section-heading { margin-bottom:4px; }
+.driver-portal .route-intro { margin-bottom:16px; }
+.driver-portal .route-grid { display:grid; gap:12px; }
+.driver-portal .route-option { display:flex; flex-direction:column; align-items:stretch; text-align:left; gap:8px; padding:14px; border:1px solid #d3dfe5; border-radius:8px; width:100%; }
+.driver-portal .route-option.selected { border:2px solid var(--teal); padding:13px; background:#f2faf9; }
+.driver-portal .route-name { display:flex; align-items:center; justify-content:space-between; gap:5px; font-size:13px; font-weight:650; }
+.driver-portal .route-numbers { font-size:25px; line-height:1.2; font-weight:650; letter-spacing:-.6px; }
+.driver-portal .route-numbers small { font-size:13px; font-weight:400; letter-spacing:0; }
+.driver-portal .route-numbers>span { font-size:13px; font-weight:400; margin-left:16px; color:#576d7c; letter-spacing:0; }
+.driver-portal .route-risk { color:#ac3d32; font-size:12px; line-height:1.4; }.driver-portal .route-clear { color:#236f60; font-size:12px; }
+.driver-portal .route-option>small { font-size:11px; color:#607684; }
+.driver-portal .route-footer { display:flex; flex-direction:column-reverse; gap:12px; margin-top:14px; }
+.driver-portal .route-footer p { font-size:11px; color:#607684; }
+.driver-portal .primary, .driver-dialog .primary { background:#087f86; color:white; border-color:#087f86; }.driver-portal .primary:hover:not(:disabled), .driver-dialog .primary:hover:not(:disabled) { background:#066b71; }
+.driver-portal .alerts-section { display:none; }
+.driver-portal .trip-rail[data-panel=alerts] :is(.trip-section,.routes-section) { display:none; }
+.driver-portal .trip-rail[data-panel=alerts] .alerts-section { display:block; }
+.driver-portal .trip-rail[data-panel=routes] .rail-content { display:flex; flex-direction:column; }
+.driver-portal .trip-rail[data-panel=routes] .routes-section { order:-1; border-top:0; border-bottom:1px solid var(--border); }
+.driver-portal .rail-footnote { padding:13px 18px; border-top:1px solid var(--border); color:#607684; font-size:10px; display:flex; align-items:center; gap:7px; flex-shrink:0; }
+.driver-portal .rail-footnote>span:last-child { margin-left:auto; }
+.driver-portal .navigation-stage { min-height:0; min-width:0; display:flex; flex-direction:column; position:relative; }
+.driver-portal .map-heading { padding:16px 24px; display:flex; align-items:center; justify-content:space-between; gap:10px; background:white; border-bottom:1px solid var(--border); }
+.driver-portal .map-heading h1 { font-size:18px; letter-spacing:-.4px; font-weight:650; margin-top:2px; }.driver-portal .map-heading h1 span { color:#7a8c98; margin:0 5px; }
+.driver-portal .icon-button { width:48px; padding:10px; }
+.driver-portal .critical-banner { display:flex; align-items:center; gap:12px; background:#fff1ee; border-bottom:1px solid #efd3ce; border-left:4px solid #c64b40; padding:13px 20px; color:#9c332b; }
+.driver-portal .critical-icon { width:35px; height:35px; border-radius:50%; display:grid; place-items:center; color:#fff; background:#c84e43; }
+.driver-portal .critical-banner strong { font-size:13px; }.driver-portal .critical-banner p { font-size:12px; margin-top:3px; color:#8c554e; }
+.driver-portal .critical-banner>div { flex:1; }.driver-portal .critical-banner button { background:#fff; color:#9c332b; border-color:#e6bdb6; font-size:12px; white-space:nowrap; }
+.driver-portal .map-shell { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
+.driver-portal .driver-map { width:100%; height:100%; min-height:0; flex:1; z-index:0; background:#e4ece9; font-family:inherit; }
+.driver-portal .map-legend { position:absolute; bottom:24px; left:20px; display:flex; gap:14px; flex-wrap:wrap; padding:10px 13px; background:#fff; color:#536b7b; box-shadow:0 2px 12px #152e4214; border:1px solid #dbe4e9; border-radius:7px; font-size:11px; pointer-events:none; z-index:1; }
+.driver-portal .map-legend span { display:flex; align-items:center; gap:5px; }.driver-portal .map-legend i { width:16px; height:3px; display:inline-block; }.driver-portal .active-line { background:#087f86; }.driver-portal .alternative-line { background:#7e8da8; }.driver-portal .preview-line { border-top:3px dashed #183451; }.driver-portal .map-legend .zone-dot { background:#eea69c; border:1px solid #dc5345; border-radius:50%; width:9px; height:9px; }
+.driver-portal .map-locate { position:absolute; bottom:32px; right:12px; z-index:1000; width:48px; padding:10px; background:#fff; box-shadow:0 2px 10px #152e4220; }
+.driver-portal .leaflet-bar { box-shadow:0 2px 10px #152e4220; border:1px solid #bdcdd6; border-radius:8px; overflow:hidden; }.driver-portal .leaflet-bar a { width:46px; height:46px; line-height:46px; color:#1e3446; }.driver-portal .leaflet-control-attribution { font-size:10px; }
+.driver-portal .map-source { display:flex; align-items:flex-start; gap:8px; background:white; padding:10px 20px; border-top:1px solid var(--border); color:#607684; font-size:11px; }
+.driver-portal .source-dot { width:6px; height:6px; background:#6d899a; border-radius:50%; flex-shrink:0; margin-top:5px; }
+.driver-portal .tile-warning { background:#fff6e8; color:#79591e; font-size:12px; padding:8px 14px; }
+.driver-portal .cockpit-actions { grid-column:2; display:flex; align-items:center; justify-content:flex-end; gap:12px; background:white; border-top:1px solid var(--border); padding:12px 24px; z-index:5; }
+.driver-portal .position-label { margin-right:auto; color:#607684; font-size:11px; }.driver-portal .position-label .online-dot { margin-right:6px; }.driver-portal .position-label strong { display:block; font-size:12px; font-weight:500; color:#3d596d; margin-top:2px; }
+.driver-portal .report-button { border-color:#a7b9c5; }
+.driver-portal .sos-button, .driver-dialog .sos-button { background:#b83132; border-color:#b83132; color:white; font-weight:700; }.driver-portal .sos-button:hover:not(:disabled), .driver-dialog .sos-button:hover:not(:disabled) { background:#9f292a; }
+.driver-portal .sos-button>span { padding-left:9px; border-left:1px solid #df8a8b; font-size:11px; font-weight:400; }
+.driver-portal .alerts-list { display:grid; gap:14px; margin-top:18px; }.driver-portal .alert-item { border:1px solid var(--border); border-left:3px solid #81a3b9; padding:14px; border-radius:7px; }.driver-portal .alert-item.critical { border-left-color:#c84e43; }.driver-portal .alert-item.warning { border-left-color:#c99538; }.driver-portal .alert-heading { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:9px; }.driver-portal .alert-heading small { color:#607684; font-size:11px; }.driver-portal .badge.critical { color:#a33830; background:#fff0ed; }.driver-portal .badge.warning { color:#8b621e; background:#fff6e6; }.driver-portal .badge.info { color:#486b88; background:#eef4fa; }.driver-portal .alert-item p { color:#586e7d; font-size:12px; margin-top:6px; }.driver-portal .text-button { background:transparent; padding:10px 0; border:0; color:#087f86; font-size:12px; }
+.driver-portal .status-message { position:absolute; top:16px; left:calc(50% + 120px); transform:translateX(-50%); width:min(560px,calc(100% - 380px)); display:flex; align-items:center; gap:12px; justify-content:space-between; padding:12px 14px; z-index:10; color:#205e50; background:#effaf5; border:1px solid #a9cdbd; border-radius:9px; box-shadow:0 8px 24px #152e4226; font-size:13px; }.driver-portal .status-message button { padding:10px; background:transparent; border:0; }.driver-portal .error-message { color:#a33830; background:#fff0ed; border-color:#e7bcb6; }
+.driver-portal .loading { grid-column:1 / -1; grid-row:1 / -1; display:flex; flex-direction:column; gap:14px; align-items:center; justify-content:center; text-align:center; padding:24px; color:#526e7d; }.driver-portal .loading h1 { font-size:24px; color:#1e3446; }
+.driver-dialog { width:470px; max-width:calc(100% - 24px); max-height:90dvh; overflow:auto; color:#1e3446; background:white; border:1px solid #d8e1e6; border-radius:14px; padding:24px; font:14px/1.5 'Segoe UI',sans-serif; box-shadow:0 20px 80px #102a3b33; }.driver-dialog::backdrop { background:#10253699; }.driver-dialog .section-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:16px; }.driver-dialog .icon-button { width:48px; padding:10px; }.driver-dialog .incident-form { display:grid; gap:15px; margin-top:20px; }.driver-dialog label { display:grid; gap:6px; font-size:13px; font-weight:600; }.driver-dialog :is(input,select,textarea) { width:100%; padding:12px; border:1px solid #b9cbd6; border-radius:7px; background:white; color:#233c4d; font:16px 'Segoe UI',sans-serif; min-height:48px; }.driver-dialog textarea { resize:vertical; }.driver-dialog .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }.driver-dialog .distress-notice { background:#fff0ed; color:#9f3530; padding:20px; border-radius:8px; margin:20px 0; }.driver-dialog .distress-notice strong { display:block; margin:10px 0; }.driver-dialog .distress-notice p { font-size:14px; }
+@media(min-width:1600px) { .driver-portal .cockpit-body { grid-template-columns:370px minmax(0,1fr); }.driver-portal .driver-card { padding:26px; } }
+@media(max-width:1100px) { .driver-portal .workspace-label { display:none; }.driver-portal .cockpit-body { grid-template-columns:310px minmax(0,1fr); }.driver-portal .driver-card { padding:18px; }.driver-portal .map-heading { padding:14px 16px; }.driver-portal .critical-banner { padding:12px; gap:8px; }.driver-portal .acknowledge-critical { display:none; }.driver-portal .position-label { display:none; }.driver-portal .map-legend { gap:10px; left:12px; bottom:24px; padding:8px 10px; font-size:10px; }.driver-portal .status-message { left:calc(50% + 100px); } }
+@media(max-width:760px) {
+ .driver-portal { min-height:540px; }.driver-portal .cockpit-header { height:62px; padding:0 16px; gap:12px; }.driver-portal .brand { font-size:19px; gap:9px; }.driver-portal .brand-icon { padding:7px; }.driver-portal .brand-sub { font-size:7px; }.driver-portal .header-right { gap:0; }.driver-portal .demo-badge { display:none; }.driver-portal .driver-profile { border:0; padding:0; }.driver-portal .driver-profile>span:first-child { display:none; }.driver-portal .avatar { width:34px; height:34px; font-size:11px; }
+ .driver-portal .demo-ribbon { font-size:10px; line-height:1.4; padding:6px 12px; }.driver-portal .demo-ribbon strong { display:block; margin-left:0; }
+ .driver-portal .cockpit-body { display:block; }.driver-portal .navigation-stage { position:absolute; inset:0 0 210px; }.driver-portal .map-heading { padding:8px 12px; }.driver-portal .map-heading .eyebrow { display:none; }.driver-portal .map-heading h1 { font-size:14px; margin:0; }.driver-portal .map-heading .icon-button { min-height:40px; height:40px; width:44px; }.driver-portal .critical-banner { padding:9px 12px; gap:9px; }.driver-portal .critical-icon { display:none; }.driver-portal .critical-banner strong { font-size:12px; }.driver-portal .critical-banner p { font-size:10px; margin-top:1px; }.driver-portal .critical-banner button { font-size:11px; padding:8px; min-height:44px; }.driver-portal .critical-banner .acknowledge-critical { display:none; }
+ .driver-portal .map-legend { bottom:20px; left:8px; right:62px; gap:6px 10px; padding:6px 8px; font-size:9px; border-radius:5px; }.driver-portal .map-legend i { width:12px; }.driver-portal .map-source { padding:6px 12px; font-size:10px; line-height:1.3; }.driver-portal .leaflet-bar a { width:42px; height:42px; line-height:42px; }.driver-portal .map-locate { right:8px; bottom:24px; }
+ .driver-portal .trip-rail { position:absolute; bottom:72px; left:0; right:0; height:138px; border:1px solid var(--border); border-bottom:0; border-radius:18px 18px 0 0; box-shadow:0 -4px 20px #152e4214; overflow:hidden; z-index:4; }.driver-portal .trip-rail.expanded { height:min(72%,600px); }.driver-portal .sheet-toggle { display:flex; text-align:left; justify-content:space-between; gap:12px; width:100%; padding:12px 18px 8px; border:0; border-radius:0; flex-shrink:0; background:#fff; min-height:76px; }.driver-portal .sheet-toggle strong { display:block; font-size:16px; letter-spacing:-.3px; }.driver-portal .sheet-toggle small { display:block; font-size:13px; font-weight:400; color:#526b7b; margin-top:3px; }.driver-portal .sheet-toggle small span { color:#197c65; }.driver-portal .rail-tabs { padding:4px 12px 8px; border-bottom:1px solid var(--border); }.driver-portal .rail-tabs button { min-height:46px; font-size:13px; }.driver-portal .rail-content { display:none!important; }.driver-portal .trip-rail.expanded .rail-content { display:block!important; }.driver-portal .rail-footnote { display:none; }
+ .driver-portal .trip-rail .trip-section, .driver-portal .trip-rail .routes-section, .driver-portal .trip-rail .alerts-section { display:none; }.driver-portal .trip-rail[data-panel=trip] .trip-section { display:block; }.driver-portal .trip-rail[data-panel=routes] .routes-section { display:block; border:0; }.driver-portal .trip-rail[data-panel=alerts] .alerts-section { display:block; }.driver-portal .driver-card { padding:18px; }.driver-portal .destination-heading h2 { font-size:22px; }.driver-portal .shipment-metrics { margin-top:16px; }.driver-portal .shipment-metrics strong { font-size:26px; }
+ .driver-portal .cockpit-actions { position:absolute; bottom:0; left:0; right:0; height:72px; padding:10px 12px; gap:10px; }.driver-portal .report-button { flex:1; }.driver-portal .sos-button { min-width:120px; }.driver-portal .status-message { top:8px; left:12px; right:12px; width:auto; transform:none; padding:10px 12px; font-size:12px; }
+}
+@media(max-height:620px) and (min-width:761px) { .driver-portal { min-height:480px; }.driver-portal .cockpit-header { height:58px; }.driver-portal .map-heading { padding:8px 16px; }.driver-portal .critical-banner { padding:8px 12px; } }
+@media(prefers-reduced-motion:reduce) { .driver-portal *, .driver-dialog * { scroll-behavior:auto!important; } }
