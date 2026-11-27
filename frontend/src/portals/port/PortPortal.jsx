@@ -10,10 +10,12 @@ import {Alerts, Incidents, Capacity} from '../../components/Operations';
 import {Badge} from '../../components/Forms';
 import {api} from '../../services/api';
 import ControlTowerMap from './components/ControlTowerMap';
+import NetworkAnalysis from './components/NetworkAnalysis';
+import WhatIfAnalysis from './components/WhatIfAnalysis';
 
 import WorkspaceNav from '../../components/WorkspaceNav';
-import { LayoutDashboard, Truck, Package, TriangleAlert, ClipboardList, Bell, CloudSun, Activity, History } from 'lucide-react';
-const tabs = [['Overview', LayoutDashboard], ['Arrivals & trucks', Truck], ['Cargo', Package], ['Incidents', TriangleAlert], ['Requests', ClipboardList], ['Alerts', Bell], ['Weather', CloudSun], ['Crisis Simulator', Activity], ['Audit trail', History]];
+import { LayoutDashboard, Truck, Package, TriangleAlert, ClipboardList, Bell, CloudSun, Activity, Network, GitCompare, History } from 'lucide-react';
+const tabs = [['Overview', LayoutDashboard], ['Arrivals & trucks', Truck], ['Cargo', Package], ['Incidents', TriangleAlert], ['Requests', ClipboardList], ['Alerts', Bell], ['Weather', CloudSun], ['Network Analysis', Network], ['What-If Analysis', GitCompare], ['Crisis Simulator', Activity], ['Audit trail', History]];
 
 export default function PortPortal(){
  const {token,user,logout}=useAuth();
@@ -150,6 +152,8 @@ export default function PortPortal(){
 
  return <div className="layout"><WorkspaceNav role="Port authority" tabs={tabs} current={tab} onSelect={name => {setTab(name);setQuery('')}} user={user} logout={logout} /><main><div className="title"><div><h1>{tab==='Overview'?'Port control tower':tab}</h1><p>{data?.port?.name || 'Port operations'} · Simulated telemetry</p></div><button onClick={refresh}>Refresh data</button></div>{error&&<div className="error" role="alert">{error}</div>}{!data?<p>Loading operations…</p>:<>
  {tab==='Crisis Simulator'&&<div className="crisis-workspace"><Suspense fallback={<p>Loading simulator...</p>}><CrisisSimulator /></Suspense></div>}
+ {tab==='Network Analysis'&&<NetworkAnalysis token={token}/>}
+ {tab==='What-If Analysis'&&<WhatIfAnalysis token={token}/>}
  {tab==='Overview'&&renderOverview()}
  {tab==='Arrivals & trucks'&&<section><input aria-label="Search records" placeholder="Search records…" value={query} onChange={e=>setQuery(e.target.value)}/><><h2>Vessel arrivals</h2>{table(data.vessels,['id','name','status','eta'])}<h2>Truck operations</h2>{table(data.vehicles,['id','name','status'])}</></section>}
  <div className="workflow-content">

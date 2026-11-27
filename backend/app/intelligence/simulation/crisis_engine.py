@@ -116,7 +116,7 @@ def run_simulation(db: Session, scenario: Dict[str, Any]) -> Dict[str, Any]:
         disrupted_nodes = [weather_city]
         disrupted_route_ids = get_affected_routes_for_port(db, weather_city)
 
-    elif disruption_type in ("strike", "demand_spike", "fuel_price_increase", "vehicle_shortage"):
+    elif disruption_type in ("strike", "demand_spike", "fuel_price_increase", "vehicle_shortage", "other"):
         # These affect all routes from/to the location
         loc_name = _normalize_location(location)
         disrupted_nodes = [loc_name]

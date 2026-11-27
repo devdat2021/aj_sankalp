@@ -281,3 +281,6 @@ export const getColdChain = (simId: string) =>
 
 export const getWarehouses = () =>
   api.get('/warehouses').then(r => r.data);
+
+export const getNetworkAnalysis = () =>
+  api.get('/network/analysis').then(r => r.data);

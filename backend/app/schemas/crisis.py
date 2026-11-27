@@ -15,6 +15,7 @@ class DisruptionType(str, Enum):
     fuel_price_increase = "fuel_price_increase"
     demand_spike = "demand_spike"
     warehouse_disruption = "warehouse_disruption"
+    other = "other"
 
 
 class SeverityLevel(str, Enum):
@@ -31,6 +32,7 @@ class SimulationRequest(BaseModel):
     duration_hours: float = Field(..., gt=0, le=720, description="Disruption duration in hours")
     severity: SeverityLevel = Field(SeverityLevel.medium, description="Disruption severity")
     capacity_reduction: float = Field(1.0, ge=0.0, le=1.0, description="Fraction of capacity blocked (0-1)")
+    description: Optional[str] = Field(None, max_length=500, description="Custom description when disruption_type is 'other'")
     delay_multiplier: Optional[float] = Field(None, gt=0, le=10.0)
     cost_multiplier: Optional[float] = Field(None, gt=0, le=10.0)
     temperature_risk_multiplier: Optional[float] = Field(None, gt=0, le=5.0)

@@ -445,3 +445,47 @@ def test_combined_api_authorization_and_storage_isolation(db):
             assert 'put' in schema['paths']['/api/shipments/{id}/assignment']
     finally:
         app.dependency_overrides.clear()
+
+
+def test_network_analysis_and_what_if_endpoints(db):
+    """Verify Network Analysis graph metrics and What-If comparison endpoints."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database.session import get_db
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        with TestClient(app) as client:
+            assert client.get('/api/crisis/network/analysis').status_code == 401
+            client.headers['Authorization'] = 'Bearer local-port-demo'
+
+            res = client.get('/api/crisis/network/analysis')
+            assert res.status_code == 200, res.text
+            data = res.json()
+            assert 0 <= data['health_score'] <= 100
+            assert 'health_breakdown' in data
+            assert data['metrics']['graph_nodes'] >= 8
+            assert data['metrics']['graph_edges'] >= 40
+            assert data['metrics']['connected_components'] >= 1
+            assert len(data['critical_nodes']) > 0
+            assert len(data['bottleneck_routes']) > 0
+            assert len(data['ports']) >= 8
+            assert 'fleet_summary' in data
+            assert 'cargo_summary' in data
+            assert 'coastalwatch_live' in data
+
+            scenarios = [
+                {'disruption_type': 'port_closure', 'location': 'Mumbai Port', 'duration_hours': 24, 'severity': 'medium', 'capacity_reduction': 0.8},
+                {'disruption_type': 'port_closure', 'location': 'Mumbai Port', 'duration_hours': 120, 'severity': 'high', 'capacity_reduction': 1.0},
+            ]
+            what_if = client.post('/api/crisis/what-if', json=scenarios)
+            assert what_if.status_code == 200, what_if.text
+            wf = what_if.json()
+            assert len(wf['scenarios']) == 2
+            assert 'comparison' in wf
+            assert wf['scenarios'][1]['impact_summary']['average_delay_hours'] >= wf['scenarios'][0]['impact_summary']['average_delay_hours']
+    finally:
+        app.dependency_overrides.clear()
