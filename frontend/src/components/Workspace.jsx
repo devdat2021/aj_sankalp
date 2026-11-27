@@ -10,6 +10,7 @@ import Cargo from './Cargo'
 import Requests from './Requests'
 import { Alerts, Capacity, Incidents, Tracking, VesselOperations } from './Operations'
 import Weather from './Weather'
+import Intelligence from './Intelligence'
 import { ActionButton } from './Forms'
 import ControlTowerMap from '../portals/port/components/ControlTowerMap'
 import PortPortal from '../portals/port/PortPortal'
@@ -65,6 +66,7 @@ function Dashboard({ user, token, logout }) {
       {error && <div className="cw-error" role="alert">{error}{data && <p>Showing the last successful update. It may be out of date.</p>}</div>}
       {expired ? <section className="cw-card"><h2>Sign-in required</h2><p>Your session or access has changed.</p><ActionButton action={logout}>Return to sign in</ActionButton></section> : !data ? <p role="status">{error ? 'Unable to load operations. Check the backend and retry.' : 'Loading your workspace…'}</p> : <>
         {tab === 'Overview' && <div className="cw-stack"><div className="cw-stats">{metrics.map(([label, count]) => <article key={label}><small>{label}</small><strong>{count}</strong></article>)}</div><Capacity {...props} /><section className="cw-card"><h2>Transport overview</h2><ControlTowerMap data={data} /><p className="cw-muted">Reported or seeded positions. No automatic GPS/AIS feed is connected.</p></section><details className="cw-card overview-weather"><summary>Port weather</summary><Weather port={data.port} token={token} /></details></div>}
+        {tab === 'Overview' && <Intelligence token={token} user={user} shipments={data.shipments} vehicles={data.vehicles} onSaved={() => refresh()} />}
         {tab === 'Consignments' && <Cargo {...props} />}{tab === 'Requests' && <Requests {...props} />}{tab === 'Incidents' && <Incidents {...props} />}{tab === 'Notifications' && <Alerts {...props} />}{tab === 'Tracking' && <Tracking {...props} />}{tab === 'Vessel operations' && <VesselOperations {...props} />}{tab === 'Weather' && <Weather port={data.port} token={token} />}
 
       </>}

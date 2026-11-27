@@ -70,3 +70,6 @@ A separate SQLAlchemy database defaults to `backend/data/crisis.db`; `CRISIS_DAT
 `LLM_PROVIDER=none` uses deterministic explanations with no external service. Optional `openai` or `watsonx` settings are defined in `app/core/config.py`; keep credentials server-side. Optional model files are not required for the deterministic simulation. Tests isolate both stores and verify crisis authorization plus operational storage isolation.
 
 Road route options may now include validated latitude/longitude geometry, distance, duration and source. The existing logistics approval operation persists these optional fields, allowing the incoming driver map to restore the approved route after reload. Older options without geometry remain valid.
+# Operational intelligence
+
+See [OPERATIONAL_INTELLIGENCE.md](OPERATIONAL_INTELLIGENCE.md) for the implemented MongoDB-to-Google-to-Gemini pipeline, setup, role-owned inputs, approvals, real verification results and limitations.

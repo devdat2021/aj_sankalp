@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.security import current_user, authority
@@ -13,6 +13,7 @@ from app.services.workflow import require, visible, shipment, notify, pending, p
 from copy import deepcopy
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
+from app.services.operational_intelligence import trigger
 
 router=APIRouter(prefix='/api')
 
@@ -31,7 +32,7 @@ def dashboard(role: str,user=Depends(current_user)):
     with transaction() as s:
         rows=[r | {'history': consignment_history(s,user,r['id']), 'eligibility': eligibility(s,user,r['id'])} for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
         by_id={r['id']:r for r in rows}
-        result=dict(user_id=user['id'],shipments=rows,port=s['port'],simulated=True,
+        result=dict(user_id=user['id'],shipments=rows,port=s['port'],simulated=settings.demo_mode,
             vessels=[logistics_vessel(v) if role=='logistics' else v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
             vehicles=[v for v in s['vehicles'] if (v.get('company_id')==user['company_id'] if role=='logistics' else v['id'] in {r.get('truck_id') for r in rows})],
             incidents=[r for r in s['incidents'] if r['shipment_id'] in ids],
@@ -159,6 +160,8 @@ def report(body: Incident,user=Depends(current_user)):
                     v['hazard_stopped']=True
                     v['hazard_reason']=f"{body.category}: {body.description}"
         notify(s,'New '+body.category+' report',[sh],'critical' if body.category in {'distress','breakdown','flood','roadblock','refrigeration'} else 'warning',row['id'])
+        exposed=[r for r in s['shipments'] if r['port_id']==sh['port_id']] if body.category in {'flood','roadblock','obstruction','storm'} else [sh]
+        trigger(s,exposed,'incident:'+row['id'],user['id'])
         return row
 
 @router.patch('/incidents/{id}')
@@ -263,7 +266,9 @@ def set_capacity(id: str,body: Capacity,user=Depends(authority)):
         if body.cold_occupied<reserved or body.occupied_berths<len(docks): raise HTTPException(409,'Occupancy cannot drop below active reservations')
         if any(int(r['berth'][1:])>body.berths for r in docks): raise HTTPException(409,'An active berth would be removed')
         updates = body.model_dump(exclude_none=True)
-        row.update(updates); audit(s,user,'capacity_updated',id); return row
+        row.update(updates); audit(s,user,'capacity_updated',id)
+        trigger(s,[sh for sh in s['shipments'] if sh['port_id']==id],'capacity_changed',user['id'])
+        return row
 
 @router.post('/port-requests',status_code=201)
 def request_port(body: PortRequest,user=Depends(current_user)):
@@ -437,11 +442,15 @@ def update_vessel_eta(id: str,body: EtaUpdate,user=Depends(current_user)):
     with transaction() as s:
         v=vessel(s,user,id)
         v['eta_hours']=body.eta_hours
+        v['eta_observed_at']=now()
+        v['expected_arrival_at']=(datetime.now(timezone.utc)+timedelta(hours=body.eta_hours)).isoformat()
         cargo=[r for r in s['shipments'] if r.get('vessel_id')==id and r['status'] in {'planned','at_sea','arrived','at_port'}]
         for sh in cargo:
             sh['eta_hours']=body.eta_hours
             notify(s,f"Consignment {sh['id']}: vessel ETA updated to {body.eta_hours} hours",[sh])
-        audit(s,user,'eta_updated',id); return v
+        audit(s,user,'eta_updated',id)
+        trigger(s,cargo,'vessel_eta_changed',user['id'])
+        return v
 
 @router.post('/shipments/{id}/events')
 def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
@@ -455,6 +464,17 @@ def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
         if body.event=='delivered' and sh.get('hazard_stopped'):
             raise HTTPException(409,'Cannot complete delivery while vehicle is stopped due to reported hazard; obtain approved reroute or resolve hazard first')
         if body.event=='picked_up':
+            if sh.get('dispatch_not_before'):
+                from app.intelligence.operational import dt, utcnow
+                if dt(sh['dispatch_not_before'])>utcnow():
+                    raise HTTPException(409,'Approved dispatch hold is still active')
+            if sh.get('recovery_recommendation_id'):
+                from app.intelligence.operational import dt, utcnow
+                truck=find(s,'vehicles',sh['truck_id'])
+                if sh.get('hazard_stopped') or truck.get('hazard_stopped') or not truck.get('available'):
+                    raise HTTPException(409,'Approved recovery pickup blocked by current vehicle availability or hazard')
+                if sh.get('planned_pickup_at') and dt(sh['planned_pickup_at'])>utcnow():
+                    raise HTTPException(409,'Approved revised pickup time has not arrived')
             if not any(r['shipment_id']==id and r['kind']=='truck_access' and r['status']=='approved' and r.get('truck_id')==sh.get('truck_id') for r in s['port_requests']): raise HTTPException(409,'Truck access approval required')
             if sh.get('cold_reserved'):
                 s['port']['cold_occupied']=max(0,s['port']['cold_occupied']-sh['quantity']); sh['cold_reserved']=False

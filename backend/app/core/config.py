@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     # ML Models
     ml_models_dir: str = "ml_models"
 
+    # Operational integrations. Secrets are never returned by the health API.
+    intelligence_enabled: bool = False
+    optimization_enabled: bool = False
+    gemini_api_key: str = ''
+    gemini_model: str = 'gemini-3.8-flash'
+    gemini_retired_model_fallback: str = 'gemini-3.7-flash'
+    google_cloud_project: str = ''
+    google_application_credentials: str = ''
+    intelligence_cache_seconds: int = 900
+    intelligence_timeout_seconds: int = 45
+    gemini_timeout_seconds: int = 90
+
     # Simulation defaults
     default_delay_multiplier_low: float = 1.2
     default_delay_multiplier_medium: float = 1.5

@@ -11,6 +11,8 @@ def legacy_seed():
 
 def migrate(state, demo=True):
     """Add workflow fields without discarding existing operational records."""
+    state.setdefault('intelligence_jobs', [])
+    state.setdefault('recommendations', [])
     state['port'].setdefault('yard_capacity', 1000)
     state['port'].setdefault('yard_occupied', 420)
     state['port'].setdefault('handling_capacity', 500)

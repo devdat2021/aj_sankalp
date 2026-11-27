@@ -13,6 +13,7 @@ import { api } from '../../services/api'
 import { ActionButton } from '../../components/Forms'
 import { stamp } from '../../services/format'
 import Weather from '../../components/Weather'
+import Intelligence from '../../components/Intelligence'
 import { Tracking } from '../../components/Operations'
 import { allowDemo } from '../../services/auth'
 import { getRoutes, findConflicts, buildHazardZones } from './services/routing'
@@ -272,6 +273,7 @@ export default function DriverPortal() {
             </div>}
 
             {panel === 'alerts' && <div className="alerts-section">
+              <Intelligence token={token} user={user} shipments={data?.shipments || []}/>
               <AlertsPanel alerts={alerts} onAcknowledge={acknowledge} pendingId={pendingAlert}/>
               <details><summary>Incident reports</summary>{data.incidents.map(i=><p key={i.id}>{i.category}: {i.description} · {i.status}</p>)}</details>
             </div>}
