@@ -1,59 +1,58 @@
-# CoastWatch-SCM — Port authority portal
+# CoastWatch coordination backend
 
-Local React + FastAPI implementation for the port authority assignment. Existing `C:/AJET/bob-ai-hackathon-y2ms` is left intact. The duplicate port application has been consolidated into the root project.
+FastAPI backend for four roles: Port Operations, logistics company, truck driver and vessel captain. Operational data is shared; access is filtered by port, company or assigned asset. Supabase supplies identity, and trusted server-side user mappings supply permissions.
 
-## Start locally
+## Run and test
 
-Backend (PowerShell):
+From the repository root (PowerShell):
+
 ```powershell
-cd C:\AJET\CoastalWatch\backend
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
+cd backend
+../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+# In another terminal, from backend:
+../.venv/Scripts/python.exe -m pytest -q
 ```
-Frontend (second terminal):
-```powershell
-cd C:\AJET\CoastalWatch\frontend
-npm install
-npm run dev
-```
-Open http://127.0.0.1:5173/port and choose **Enter demo workspace**. API documentation: http://127.0.0.1:8001/docs.
 
-## Understanding the backend
+Interactive API contracts: http://127.0.0.1:8001/docs. Copy `.env.example` to `.env` to configure Atlas and Supabase. Disable DEMO_MODE outside local development. Demo bearer tokens: `local-port-demo`, `local-logistics-demo`, `local-driver-demo`, `local-captain-demo`. Driver and captain demo accounts own TRK-101 and VES-101 respectively; logistics owns LOG-101. Production mappings require `auth_user_id`, `active`, `role`, and the corresponding `company_id`, `port_id` or `asset_id`. Asset records also identify their driver/captain.
 
-The supplied backend.txt is an architectural directory tree, not executable source. This project follows its separation of responsibilities, implementing the port-specific subset:
+## Decision ownership
 
-- `app/main.py` creates FastAPI and configures CORS.
-- `app/core/config.py` reads environment settings. `security.py` validates identity and port authority scope.
-- `app/api/router.py` defines HTTP contracts and validation boundaries.
-- `app/schemas/port.py` validates request bodies and allowed status values.
-- `app/services/port_service.py` handles lookup, notifications and audit records.
-- `app/database/connection.py` persists state locally or in Atlas with optimistic concurrency.
-- `app/database/collections.py` supplies coherent shared demo IDs.
-- `app/intelligence/simulation/engine.py` computes deterministic, explicitly labeled impact estimates.
+- Logistics creates consignments, assigns company trucks and routes, and approves driver reroutes. Ports and drivers cannot approve road changes.
+- Port Operations approves separate handling and truck-access requests, updates capacity, publishes warnings, and approves docking requests.
+- Captains request docking and record actual vessel departure, arrival and docking. Approval alone does not create a movement event.
+- Port Operations records unloading and pickup readiness. Drivers record pickup and delivery. Pickup requires approval for the currently assigned truck.
+- One warning has multiple scoped recipients, each with an independent acknowledgment. Company users see only their consignments, including when vessels carry cargo for multiple companies.
 
-Flow: browser → authenticated endpoint → validated request → state transition → persistence → response → dashboard refresh. The dashboard polls every eight seconds. Decisions atomically update the request, shipment ETA, notification and audit entry. Already-decided requests return 409. Incidents enforce reported → confirmed/rejected → resolved (resolution only from confirmed).
+## API map (all paths start with /api)
 
-## Implemented screens
+| Endpoint | Purpose |
+| --- | --- |
+| GET /me, GET /{role}/dashboard | Identity and scoped dashboard |
+| POST /shipments, GET /shipments/{id} | Create/view consignment |
+| PUT /shipments/{id}/assignment | Logistics assigns truck and initial route |
+| POST/GET /route-requests, PATCH /route-requests/{id} | Driver request; logistics decision |
+| POST/GET /port-requests, PATCH /port-requests/{id} | Handling or truck access; port decision |
+| GET/PATCH /ports/{id}/capacity | Shared capacity view; port update |
+| POST/GET /docking-requests, PATCH /docking-requests/{id} | Captain request; port berth/slot decision |
+| POST /vessels/{id}/events | departed, arrived, docked |
+| POST /shipments/{id}/events | unloaded, ready_for_pickup, picked_up, delivered |
+| POST /tracking/location | Own asset position; rejects stale/future observations |
+| POST/GET /incidents, PATCH /incidents/{id} | Report/feed; port review |
+| POST/GET /alerts, PATCH /alerts/{id}/read | Port warnings and recipient acknowledgment |
+| GET /ports/{id}/weather?mode=land or marine | Port-location Open-Meteo forecast |
+| POST /simulation/run | Read-only port impact estimate |
 
-Control tower with OSM map, vessel and truck tracking, cargo search, berth/cold-store capacity, incident submission/review, recovery approval/rejection, port-wide alerts and acknowledgment, what-if simulation, audit trail, demo entry and optional Supabase login. Frontend organization follows the image: `src/portals/port/PortPortal.jsx`, `components/`, `services/`, with shared App/main/CSS.
+Use timezone-aware ISO timestamps; new workflow timestamps normalize to UTC. Consignment quantity and refrigerated capacity use tonnes in this MVP. Docking berths are B1 through B{configured berth count}. Refrigerated cargo sorts ahead of standard requests, then by request time; the operator confirms compatibility. Docking requires handling approval for linked inbound cargo. Reservations consume capacity immediately and are released on pickup/departure. This is conservative reservation accounting, not a calendar-based berth scheduler.
 
-## Atlas and Supabase
+## Storage and migration
 
-Copy `backend/.env.example` to `.env`. Set `MONGODB_URI`, `SUPABASE_URL`, and `DEMO_MODE=false`. Create `frontend/.env.local` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Use Supabase asymmetric JWT signing (ES256 or RS256). Tokens are verified for signature, expiration, issuer, audience and subject. Insert a trusted user mapping in the aggregate's `state.users` with `auth_user_id` equal to the Supabase account UUID, `role: port`, `port_id: NMP`, and `active: true`. Never accept role assignments from browser metadata.
+The existing versioned Atlas `port_state` aggregate is retained under `_id: NMP`, allowing approval, capacity, notification and audit updates to commit together. Concurrent Atlas writes return 409; local JSON is single-process demo storage. Schema-v1 records migrate lazily to v2 without deleting records. Existing legacy shipments/trucks are mapped to the demo company LOG-101; old alerts remain port-scoped. New demo users are added only in demo mode. Review these legacy ownership mappings before using real operational data. Back up existing storage before first deployment of a new schema.
 
-Atlas currently stores one versioned `port_state` aggregate with `_id: NMP`, `version`, and `state`. This differs from the blueprint's normalized collections: it makes the port MVP's multi-record decisions atomic without requiring transaction setup. Production multi-port support should normalize collections, add geospatial indexes, and retain transactional approvals. Local JSON storage is for one backend process only. Demo mode includes a deliberately public demo credential; keep the server on loopback and disable demo mode before deployment.
+## Boundaries
 
-## Integration boundaries and limitations
+This implementation supports one configured port with multiple company/asset scopes. It does not provide a tenant-administration UI, multi-port voyage scheduling, customs clearance, live AIS/GPS ingestion, verified navigation, automatic route generation, or emergency-service dispatch. Route candidates are supplied through the API and require logistics review. Vessel docking safety/compatibility is operator-confirmed; priority is a simple refrigerated-cargo heuristic.
 
-The driver portal is included in the unified frontend as a session-only demo. Captain portals, driver-owned APIs, live weather, OSRM hazard-checked routes, live telemetry, and production deployment are not included. All map positions and options are seeded; road and maritime alternatives are not verified safe routes. Alerts currently target the port workspace, not individual field users. Connect teammates' assignment-scoped dashboards and notification recipients before claiming the full three-portal workflow. The backend currently authorizes one port (NMP).
+Weather has an eight-second timeout and ten-minute in-memory cache. Cached forecasts are labeled stale on provider failure; otherwise the endpoint returns 503. Incident persistence is independent of weather. Tests mock the provider; live provider availability is not guaranteed.
 
-Existing ChainMind simulation and optimization modules were inspected. Their deterministic impact and transparent scoring ideas inform this implementation; their SQLAlchemy models and code were not copied or integrated. No trained ML prediction is claimed. Capacity is a seeded operational snapshot; simulation does not change it.
-
-## Checks
-```powershell
-cd C:\AJET\CoastalWatch\backend
-python -m pytest -q
-cd ..\frontend
-npm run build
-```
-Tests exercise authentication failure, approval persistence and duplicate protection, invalid option rollback, incident lifecycle, read-only simulations and idempotent acknowledgment.
+The frontend now connects all four role workspaces to these APIs, including port approval forms, driver reports, logistics routing decisions, captain movement events and weather. See ../frontend/README.md for Supabase setup and frontend limitations.

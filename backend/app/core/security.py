@@ -3,10 +3,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 from app.database.connection import transaction
 bearer=HTTPBearer(auto_error=False)
-def authority(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+def current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
     if not credentials: raise HTTPException(401,'Sign in required')
     token=credentials.credentials
-    if settings.demo_mode and token=='local-port-demo': subject='authority-demo'
+    demos = {'local-port-demo':'authority-demo', 'local-logistics-demo':'logistics-demo', 'local-driver-demo':'driver-demo', 'local-captain-demo':'captain-demo'}
+    if settings.demo_mode and token in demos: subject=demos[token]
     else:
         try:
             import jwt
@@ -16,5 +17,9 @@ def authority(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
         except Exception: raise HTTPException(401,'Invalid or expired token')
     with transaction() as state:
         user=next((u for u in state['users'] if u['auth_user_id']==subject and u['active']),None)
-    if not user or user['role']!='port' or user['port_id']!='NMP': raise HTTPException(403,'Port authority access required')
+    if not user: raise HTTPException(403,'Active user mapping required')
+    return user
+
+def authority(user=Depends(current_user)):
+    if user['role'] != 'port': raise HTTPException(403,'Port operations access required')
     return user

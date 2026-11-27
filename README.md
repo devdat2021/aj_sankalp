@@ -1,5 +1,8 @@
 # CoastWatch — unified application
 
+Backend workflow updated to four roles: Port Operations, logistics company, driver, and captain. See [backend contracts and setup](backend/README.md). Logistics now owns road reroute approvals; ports own handling, access, and docking. All four frontend role workspaces now use these APIs. See [frontend setup](frontend/README.md) for Supabase configuration.
+
+
 One frontend (`frontend/`) and one FastAPI backend (`backend/`).
 
 ## Start
@@ -15,7 +18,7 @@ Frontend, in another terminal from `C:/AJET/CoastalWatch/frontend`:
 npm ci
 npm run dev
 ```
-Open http://127.0.0.1:5173. Choose Driver or Port Authority. Port Authority has an **Enter demo workspace** button. `/api` proxies to the backend on port 8001.
+Open http://127.0.0.1:5173. Choose Logistics, Port Operations, Truck Operator or Vessel Operator on the home page. Local demo access is available until Supabase is configured. `/api` proxies to the backend on port 8001.
 
 ## MongoDB
 
@@ -33,7 +36,7 @@ Duplicate port folders were moved to `C:/Users/Alfaz/CoastalWatch-backup-2026112
 
 ## Feature boundaries
 
-Port Authority persists cargo, incidents, decisions, alerts and simulations through FastAPI. Driver remains the original session-only demo: its incidents and simulated approvals do not synchronize with Port Authority. Maps require internet. Telemetry is simulated; no emergency service is contacted.
+All four portals share cargo, incidents, decisions and scoped alerts through FastAPI. Logistics approves road changes; ports approve access and docking. Maps and weather require internet. Positions are seeded or manually reported; no emergency service is contacted.
 
 ## Checks
 

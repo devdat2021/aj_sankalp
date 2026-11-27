@@ -15,6 +15,7 @@ def test_auth(client):
     assert client.get('/api/port/dashboard',headers={'Authorization':'Bearer wrong'}).status_code == 401
 
 def test_approval_atomic_and_duplicate(client):
+    client.headers['Authorization']='Bearer local-logistics-demo'
     before=client.get('/api/shipments/SHP-102').json()
     body={'status':'approved','option_id':'OPT-1','reason':'Keep cargo chilled'}
     assert client.patch('/api/route-requests/REQ-101',json=body).status_code==200
@@ -24,6 +25,7 @@ def test_approval_atomic_and_duplicate(client):
     assert len(client.get('/api/alerts').json())==1
 
 def test_invalid_option_no_change(client):
+    client.headers['Authorization']='Bearer local-logistics-demo'
     assert client.patch('/api/route-requests/REQ-101',json={'status':'approved','option_id':'bad','reason':'Test reason'}).status_code==422
     assert client.get('/api/route-requests').json()[0]['status']=='pending'
 

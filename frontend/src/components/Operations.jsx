@@ -1,0 +1,35 @@
+import { iso, options, stamp } from '../services/format'
+import { ActionButton, ActionForm, Badge, Empty, Field } from './Forms'
+
+export function Incidents({ data, user, mutate }) {
+  return <div className="cw-stack"><section className="cw-card"><h2>Report an incident</h2><p>Reports are saved immediately and shared with relevant operators. Distress reports are internal notifications, not emergency calls.</p>
+    <ActionForm label="Submit report" disabled={!data.shipments.length} reset submit={f => mutate('/incidents', 'POST', { ...f, lat: Number(f.lat), lng: Number(f.lng) })}>
+      <Field label="Consignment" name="shipment_id" options={options(data.shipments)} /><Field label="Category" name="category" options={['flood', 'roadblock', 'storm', 'obstruction', 'breakdown', 'refrigeration', 'adverse_seas', 'vessel_issue', 'distress']} /><Field label="Severity" name="severity" options={['low', 'medium', 'high']} /><Field label="Description" name="description" type="textarea" minLength={5} maxLength={1000} /><Field label="Latitude" name="lat" type="number" min="-90" max="90" step="any" /><Field label="Longitude" name="lng" type="number" min="-180" max="180" step="any" />
+    </ActionForm></section>
+    {!data.incidents.length && <Empty>No incidents reported.</Empty>}{data.incidents.map(i => <section className="cw-card" key={i.id}><div className="cw-row"><h3>{i.category.replaceAll('_', ' ')} · {i.shipment_id}</h3><Badge>{i.status}</Badge></div><p>{i.description}</p><p><Badge>{i.severity}</Badge> · {stamp(i.created_at)} · {i.lat}, {i.lng}</p>{user.role === 'port' && <div className="cw-actions">{(i.status === 'reported' ? ['confirmed', 'rejected'] : i.status === 'confirmed' ? ['resolved'] : []).map(status => <ActionButton key={status} action={() => mutate(`/incidents/${i.id}`, 'PATCH', { status })}>{status === 'confirmed' ? 'Confirm incident' : status === 'rejected' ? 'Reject report' : 'Mark resolved'}</ActionButton>)}</div>}</section>)}</div>
+}
+
+export function Alerts({ data, user, mutate }) {
+  return <div className="cw-stack">{user.role === 'port' && <section className="cw-card"><h2>Publish a disruption warning</h2><p>One warning reaches the relevant company and assigned operators, with separate acknowledgments.</p><ActionForm label="Publish warning" reset submit={f => mutate('/alerts', 'POST', { message: f.message, severity: f.severity, shipment_ids: f.shipment_id ? [f.shipment_id] : [] })}><Field label="Audience" name="shipment_id" options={[{ value: '', label: 'All port consignments' }, ...options(data.shipments)]} required={false} /><Field label="Severity" name="severity" options={['warning', 'critical', 'info']} /><Field label="Warning message" name="message" type="textarea" minLength={3} maxLength={1000} /></ActionForm></section>}
+    {!data.alerts.length && <Empty>No notifications yet.</Empty>}{data.alerts.map(a => <section className="cw-card" key={a.id}><div className="cw-row"><Badge>{a.severity}</Badge><small>{stamp(a.created_at)}</small></div><p>{a.message}</p><ActionButton disabled={a.read_by.includes(user.id)} action={() => mutate(`/alerts/${a.id}/read`, 'PATCH')}>{a.read_by.includes(user.id) ? 'Acknowledged by you' : 'Acknowledge'}</ActionButton></section>)}
+  </div>
+}
+
+export function Capacity({ data, user, mutate }) {
+  const p = data.port
+  return <section className="cw-card"><div className="cw-row"><h2>{p.name}</h2><Badge>{p.status}</Badge></div><div className="cw-facts"><span><strong>{p.berths - p.occupied_berths} / {p.berths}</strong>Berths available</span><span><strong>{p.cold_capacity - p.cold_occupied} / {p.cold_capacity} t</strong>Cold capacity available</span></div><p className="cw-muted">Approved reservations are included in occupancy.</p>{user.role === 'port' && <details><summary>Update capacity</summary><ActionForm label="Save capacity" submit={f => mutate(`/ports/${p.id}/capacity`, 'PATCH', { status: f.status, ...Object.fromEntries(['berths', 'occupied_berths', 'cold_capacity', 'cold_occupied'].map(k => [k, Number(f[k])])) })}><Field label="Operational status" name="status" options={['open', 'restricted', 'closed']} value={p.status} />{[['berths', 'Total berths'], ['occupied_berths', 'Occupied / reserved berths'], ['cold_capacity', 'Cold capacity (tonnes)'], ['cold_occupied', 'Occupied / reserved cold capacity (tonnes)']].map(([name, label]) => <Field key={name} name={name} label={label} type="number" min="0" step={name.includes('cold') ? 'any' : '1'} value={p[name]} />)}</ActionForm></details>}</section>
+}
+
+export function VesselOperations({ data, mutate }) {
+  return <div className="cw-stack">{!data.vessels.length && <Empty>No vessel assigned.</Empty>}{data.vessels.map(v => {
+    const active = data.docking_requests.find(r => r.vessel_id === v.id && ['pending', 'approved'].includes(r.status))
+    const state = v.movement_status || 'planned'
+    const events = { planned: ['departed', 'arrived'], departed: ['arrived'], arrived: active?.status === 'approved' ? ['docked'] : [], docked: ['departed'] }[state] || []
+    return <section className="cw-card" key={v.id}><div className="cw-row"><h2>{v.name}</h2><Badge>{state}</Badge></div><p>{v.id} · {v.source} → {data.port.name}</p>{active ? <p>Docking request: <Badge>{active.status}</Badge>{active.berth && ` · ${active.berth} · ${stamp(active.slot)}`}</p> : <ActionForm label="Request docking" submit={f => mutate('/docking-requests', 'POST', { vessel_id: v.id, port_id: data.port.id, eta: iso(f.eta) })}><Field label="Expected arrival (your local time)" name="eta" type="datetime-local" /></ActionForm>}
+      {events.length > 0 ? <ActionForm label="Record actual movement" submit={f => mutate(`/vessels/${v.id}/events`, 'POST', { event: f.event, eta_hours: Number(f.eta_hours) })}><Field label="Movement event" name="event" options={events} /><Field label="Updated cargo ETA (hours)" name="eta_hours" type="number" min="0" step="any" value={v.eta_hours || 0} /><p className="cw-muted">Record only an event that has happened. Arrival does not mean cargo is ready for pickup.</p></ActionForm> : <p>Docking approval is required before recording docking.</p>}</section>
+  })}</div>
+}
+
+export function Tracking({ data, user, mutate }) {
+  return <div className="cw-stack">{['driver', 'captain'].includes(user.role) && <section className="cw-card"><h2>Update your asset position</h2><ActionForm label="Send position" submit={f => mutate('/tracking/location', 'POST', { lat: Number(f.lat), lng: Number(f.lng), observed_at: new Date().toISOString() })}><Field label="Latitude" name="lat" type="number" min="-90" max="90" step="any" /><Field label="Longitude" name="lng" type="number" min="-180" max="180" step="any" /><p>Manual position update for your assigned asset.</p></ActionForm></section>}{[...data.vehicles, ...data.vessels].map(v => <section className="cw-card" key={v.id}><div className="cw-row"><h3>{v.name} · {v.id}</h3><Badge>{v.status}</Badge></div><p>Position: {v.lat}, {v.lng}</p><small>Last reported: {v.last_seen ? stamp(v.last_seen) : 'Seeded position; no update received'}</small></section>)}</div>
+}
