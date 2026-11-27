@@ -144,6 +144,38 @@ def _blocked_reason(ready_for_pickup, truck_access_approved, unloaded,
     return '; '.join(reasons)
 
 
+def assign_eligible(state, user, sid):
+    """Check whether a consignment is eligible for truck assignment.
+
+    Returns (ok, reason) tuple.  ok is True when assignment is permitted;
+    reason is None when ok, or a string explaining the block.
+    """
+    sh = shipment(state, user, sid)
+
+    # Must not have started a trip already
+    if sh['status'] in {'in_transit', 'delivered'}:
+        return False, 'Trip already started'
+
+    # Truck must belong to the same company
+    truck_id = sh.get('truck_id')
+    if truck_id:
+        truck = next((v for v in state.get('vehicles', []) if v['id'] == truck_id), None)
+        if not truck:
+            return False, 'Truck not found'
+        if truck.get('company_id') != user.get('company_id'):
+            return False, 'Truck not owned by your company'
+        # Check driver mapping is valid
+        driver_id = truck.get('driver_id')
+        if driver_id and driver_id not in {u['id'] for u in state.get('users', []) if u.get('active')}:
+            return False, 'Truck driver mapping invalid'
+
+    # Company must match
+    if not (bool(user.get('company_id')) and sh.get('company_id') == user['company_id']):
+        return False, 'Company mismatch'
+
+    return True, None
+
+
 def _event_id_from(event):
     """Preserve existing event ID when available, otherwise generate new one."""
     return event.get('id') or str(uuid4())

@@ -9,7 +9,7 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
 from app.services.port_service import find, audit, now
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
 
@@ -67,11 +67,25 @@ def create_shipment(body: Consignment,user=Depends(current_user)):
 def assign(id: str,body: Assignment,user=Depends(current_user)):
     require(user,'logistics')
     with transaction() as s:
+        ok, reason = assign_eligible(s,user,id)
+        if not ok:
+            raise HTTPException(409, reason)
         row=shipment(s,user,id); truck=find(s,'vehicles',body.truck_id)
         if truck['company_id']!=user['company_id']: raise HTTPException(404,'Truck not found')
         if row['status'] in {'in_transit','delivered'}: raise HTTPException(409,'Trip already started')
+        old_truck_id = row.get('truck_id')
+        old_route_id = row.get('route_id')
         row.update(truck_id=truck['id'],route_id=body.route.id,route=body.route.model_dump())
-        audit(s,user,'truck_assigned',id); notify(s,'Truck and route assigned: '+id,[row]); return row
+        # Preserve assignment history via audit
+        if old_truck_id and old_truck_id != truck['id']:
+            audit(s,user,'truck_reassigned',id)
+        else:
+            audit(s,user,'truck_assigned',id)
+        # Invalidate any prior truck_access approvals for a different truck
+        for pr in s.get('port_requests', []):
+            if pr.get('shipment_id') == id and pr.get('kind') == 'truck_access' and pr.get('status') == 'approved' and pr.get('truck_id') != truck['id']:
+                pr['status'] = 'revoked'
+        notify(s,'Truck and route assigned: '+id,[row]); return row
 
 @router.get('/incidents')
 def incidents(user=Depends(current_user)):
