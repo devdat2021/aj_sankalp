@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.core.security import authority
 from app.api.router import router
 from app.api.intelligence import router as intelligence_router
+from app.api.admin import router as admin_router
 from app.services.operational_intelligence import start_worker
 from app.database.crisis_seed import seed_database
 from app.api import (
@@ -28,9 +29,10 @@ app = FastAPI(lifespan=lifespan, title='CoastWatch Coordination API', version='2
 app.add_middleware(
     CORSMiddleware, allow_origins=[origin.strip() for origin in settings.cors_origins.split(',')],
     allow_methods=['GET', 'POST', 'PATCH', 'PUT'],
-    allow_headers=['Authorization', 'Content-Type'],
+    allow_headers=['Authorization', 'Content-Type', 'X-Workspace-Role', 'X-Workspace-Scope'],
 )
 app.include_router(router)
+app.include_router(admin_router)
 app.include_router(intelligence_router)
 for module in (crisis_dashboard, crisis_ports, crisis_warehouses, crisis_routes,
                crisis_shipments, crisis_fleet, crisis_simulate, crisis_scenarios):

@@ -1,7 +1,15 @@
 export async function api(path, token, method = 'GET', body, signal, timeoutMs = 15000) {
+  const workspaceHeaders = {}
+  if (typeof window !== 'undefined' && !path.startsWith('/me') && !path.startsWith('/admin/')) {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('admin') === '1') {
+      workspaceHeaders['X-Workspace-Role'] = window.location.pathname.split('/')[1]
+      if (params.get('scope')) workspaceHeaders['X-Workspace-Scope'] = params.get('scope')
+    }
+  }
   const response = await fetch(`${import.meta.env?.VITE_API_BASE_URL || ''}/api${path}`, {
     method,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' },
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...workspaceHeaders, 'Content-Type': 'application/json' },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
   })

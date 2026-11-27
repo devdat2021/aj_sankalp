@@ -494,6 +494,6 @@ def port(state, pid):
 
 def vessel(state, user, vid):
     row=find(state, 'vessels', vid)
-    if user['role']=='captain' and (user.get('asset_id')!=vid or row.get('captain_id')!=user['id']):
+    if user['role']=='captain' and (user.get('asset_id')!=vid or (row.get('captain_id')!=user['id'] and not user.get('is_admin'))):
         raise HTTPException(404, 'Vessel not found')
     return row

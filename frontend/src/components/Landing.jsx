@@ -1,4 +1,4 @@
-import { ArrowUpRight, Anchor, Ship, Truck, Route, Users, Network, GitBranch, Snowflake, ShieldCheck, MapPinned, Thermometer } from 'lucide-react'
+import { ArrowUpRight, Anchor, Ship, Truck, Route, Users, Network, GitBranch, ShieldCheck, MapPinned, Thermometer } from 'lucide-react'
 import { roles } from '../services/roles'
 import '../landing.css'
 
@@ -35,7 +35,7 @@ export default function Landing({ children, enter, busy, demoEnabled, hasSignIn 
 
     <section id="workspaces" className="landing-section"><div className="landing-section-heading"><div><p className="landing-eyebrow">Your role. Your decisions.</p><h2>A connected workspace<br/>for every stakeholder.</h2></div><p>{hasSignIn ? 'Sign in to access your assigned workspace. Your account determines your role and permissions.' : 'Choose your workspace to explore coordinated coastal operations.'}</p></div>
       {children}
-      {!hasSignIn && <><div className="landing-workspaces">{Object.entries(roles).map(([role, { name, description, icon: Icon }]) => <article className="landing-card" key={role}><Icon size={26}/><h3>{name}</h3><p>{description}</p>{demoEnabled && <button disabled={busy} onClick={() => enter(role)}>{busy ? 'Opening workspace…' : `Open ${name.toLowerCase()}`}<ArrowUpRight size={19}/></button>}</article>)}</div><p className="landing-note">{demoEnabled ? 'Workspace access uses shared operational records. Sign out to switch roles.' : 'Sign-in is not configured. Ask your administrator to enable access.'}</p></>}
+      {!hasSignIn && <><div className="landing-workspaces">{Object.entries(roles).filter(([role]) => role !== 'admin').map(([role, { name, description, icon: Icon }]) => <article className="landing-card" key={role}><Icon size={26}/><h3>{name}</h3><p>{description}</p>{demoEnabled && <button disabled={busy} onClick={() => enter(role)}>{busy ? 'Opening workspace…' : `Open ${name.toLowerCase()}`}<ArrowUpRight size={19}/></button>}</article>)}</div><p className="landing-note">{demoEnabled ? 'Workspace access uses shared operational records. Sign out to switch roles.' : 'Sign-in is not configured. Ask your administrator to enable access.'}</p></>}
     </section><footer className="landing-footer"><a className="landing-brand" href="#top">CoastWatch<span>.</span></a><span>Coastal coordination. Clearly owned decisions.</span><a href="#top">Back to top ↑</a></footer>
   </div></main>
 }

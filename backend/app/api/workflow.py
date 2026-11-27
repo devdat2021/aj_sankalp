@@ -338,7 +338,7 @@ def tracking(body: Position,user=Depends(current_user)):
     with transaction() as s:
         row=find(s,'vehicles' if user['role']=='driver' else 'vessels',user['asset_id'])
         owner='driver_id' if user['role']=='driver' else 'captain_id'
-        if row.get(owner)!=user['id']: raise HTTPException(404,'Asset not found')
+        if row.get(owner)!=user['id'] and not user.get('is_admin'): raise HTTPException(404,'Asset not found')
         if row.get('last_seen') and observed<=datetime.fromisoformat(row['last_seen']): raise HTTPException(409,'Stale location')
         row.update(lat=body.lat,lng=body.lng,last_seen=observed.astimezone(timezone.utc).isoformat(),simulated=settings.demo_mode); return row
 

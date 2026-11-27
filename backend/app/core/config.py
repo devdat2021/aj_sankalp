@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     mongodb_uri: str = ''
     mongodb_db: str = 'coastwatch'
     supabase_url: str = ''
+    supabase_publishable_key: str = ''
+    supabase_secret_key: str = ''
     supabase_jwt_audience: str = 'authenticated'
     cors_origins: str = 'http://localhost:5173,http://127.0.0.1:5173'
     # LLM Configuration

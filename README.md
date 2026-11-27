@@ -24,6 +24,8 @@ Open http://127.0.0.1:5173; API documentation is at http://127.0.0.1:8001/docs. 
 
 ## Storage and authentication
 
+See [Supabase and administrator setup](SUPABASE_SETUP.md) for credentials, initial admin provisioning, role management, and hosted Auth settings.
+
 - Operational consignments, capacity, requests, incidents and notifications retain the existing MongoDB Atlas integration (`MONGODB_URI`, `MONGODB_DB`). An empty URI uses local JSON in demo mode. Demo actions use the configured database; they are not automatically isolated.
 - Crisis simulations use a separate SQLAlchemy store, defaulting to `backend/data/crisis.db`. Startup creates its tables and seeds a synthetic logistics network if empty. Optional `CRISIS_DATABASE_URL` overrides this store. Simulation scenarios and history persist here; simulation does not change operational assignments or capacity in MongoDB.
 - Supabase remains the shared authentication provider when configured. Roles and asset/company permissions are resolved by FastAPI, not the browser. See [backend setup](backend/README.md) and [frontend setup](frontend/README.md). Live Supabase login must be verified once credentials/accounts are configured.

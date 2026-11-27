@@ -6,7 +6,6 @@ import { useAuth } from '../../components/AuthContext';
 import Cargo from '../../components/Cargo';
 import Requests from '../../components/Requests';
 import Weather from '../../components/Weather';
-import Intelligence from '../../components/Intelligence';
 import { Alerts, Incidents, Capacity } from '../../components/Operations';
 import { Badge } from '../../components/Forms';
 import { api } from '../../services/api';

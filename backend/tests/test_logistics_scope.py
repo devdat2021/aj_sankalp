@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.core.security import jwks_client
 from app.database import connection
 from app.services.workflow import visible
 
@@ -19,21 +20,22 @@ def auth(role):
 
 @pytest.fixture
 def tenants(tmp_path, monkeypatch):
+    jwks_client.cache_clear()
     monkeypatch.setattr(connection, 'path', tmp_path / 'state.json')
     monkeypatch.setattr(connection.settings, 'mongodb_uri', '')
     monkeypatch.setattr(connection.settings, 'demo_mode', True)
     monkeypatch.setattr(connection.settings, 'supabase_url', 'https://auth.example.test')
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    monkeypatch.setattr(jwt, 'PyJWKClient', lambda url: SimpleNamespace(
+    monkeypatch.setattr(jwt, 'PyJWKClient', lambda url, **kwargs: SimpleNamespace(
         get_signing_key_from_jwt=lambda token: SimpleNamespace(key=key.public_key())))
-    token = jwt.encode(dict(sub='company-b-subject', aud=connection.settings.supabase_jwt_audience,
+    token = jwt.encode(dict(sub='00000000-0000-4000-8000-000000000014', aud=connection.settings.supabase_jwt_audience,
                             iss='https://auth.example.test/auth/v1',
                             exp=datetime.now(timezone.utc) + timedelta(minutes=10),
                             company_id='LOG-101', role='port'), key, algorithm='RS256')
     # Even signed client/JWT role and company claims do not override the trusted mapping.
     with connection.transaction() as state:
         state['companies'].append(dict(id='LOG-B', name='Company B'))
-        state['users'].append(dict(id='user-b', auth_user_id='company-b-subject',
+        state['users'].append(dict(id='user-b', auth_user_id='00000000-0000-4000-8000-000000000014',
                                    role='logistics', company_id='LOG-B', active=True, name='B'))
         state['users'].append(dict(id='driver-b', auth_user_id='driver-b-subject',
                                    role='driver', company_id='LOG-B', asset_id='TRK-B', active=True))

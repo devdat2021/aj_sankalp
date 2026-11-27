@@ -1,11 +1,12 @@
 import { stamp } from '../services/format'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { Package, Ship, Bell, LayoutDashboard, ClipboardList, TriangleAlert, MapPin, CloudSun, RefreshCw } from 'lucide-react'
-import { useAuth } from './AuthContext'
+import { AuthContext, useAuth } from './AuthContext'
 import { api } from '../services/api'
 import { roles } from '../services/roles'
 import WorkspaceNav from './WorkspaceNav'
+import Admin from './Admin'
 import Cargo from './Cargo'
 import Requests from './Requests'
 import { Alerts, Capacity, Incidents, Tracking, VesselOperations } from './Operations'
@@ -75,10 +76,20 @@ function Dashboard({ user, token, logout }) {
 
 export default function Workspace({ role }) {
   const auth = useAuth()
+  const [params] = useSearchParams()
   if (auth.loading) return <main className="cw-loading">Checking your session…</main>
-  if (!auth.user) return <Navigate to="/" replace />
+  if (!auth.user) return <Navigate to="/login" replace />
   if (!roles[auth.user.role]) return <main className="cw-loading">Your account has an unsupported role. Contact your administrator.</main>
+  if (auth.user.role === 'admin' && role !== 'admin') {
+    const choices = auth.user.workspaces?.[role] || []
+    const selected = choices.find(item => item.id === params.get('scope')) || choices[0]
+    if (!selected) return <main className="cw-loading">No {roles[role].name.toLowerCase()} workspace available. <Link to="/admin">Back to admin</Link></main>
+    if (params.get('admin') !== '1' || params.get('scope') !== selected.id) return <Navigate to={`/${role}?admin=1&scope=${encodeURIComponent(selected.id)}`} replace />
+    const projected = { ...auth, user: { ...auth.user, ...selected, id: auth.user.id, name: auth.user.name, role } }
+    return <AuthContext.Provider value={projected}><div className="workflow-content" style={{ padding: '10px 20px', position: 'sticky', top: 0, zIndex: 2000 }}><Link to="/admin">Admin · All workspaces</Link><span> / {selected.name}</span></div>{role === 'port' ? <div className="port-portal"><PortPortal /></div> : role === 'driver' ? <DriverPortal /> : <Dashboard {...projected} />}</AuthContext.Provider>
+  }
   if (auth.user.role !== role) return <Navigate to={`/${auth.user.role}`} replace />
+  if (role === 'admin') return <Admin key={auth.user.id} {...auth} />
   if (role === 'port') return <div className="port-portal"><PortPortal key={auth.user.id} /></div>
   if (role === 'driver') return <DriverPortal key={auth.user.id} />
   return <Dashboard key={auth.user.id} {...auth} />

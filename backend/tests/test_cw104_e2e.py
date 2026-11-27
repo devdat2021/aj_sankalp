@@ -368,7 +368,7 @@ def test_supabase_jwt_auth_and_role_mapping_live_mode(tmp_path, monkeypatch):
     # Add explicit supabase UUIDs to users
     initial_state['users'].append({
         'id': 'driver-live-user',
-        'auth_user_id': 'supabase-uuid-driver-1234',
+        'auth_user_id': '00000000-0000-4000-8000-000000000011',
         'name': 'Live Driver',
         'role': 'driver',
         'company_id': 'LOG-101',
@@ -377,7 +377,7 @@ def test_supabase_jwt_auth_and_role_mapping_live_mode(tmp_path, monkeypatch):
     })
     initial_state['users'].append({
         'id': 'inactive-user',
-        'auth_user_id': 'supabase-uuid-inactive-5678',
+        'auth_user_id': '00000000-0000-4000-8000-000000000012',
         'name': 'Inactive Operator',
         'role': 'port',
         'port_id': 'NMP',
@@ -396,7 +396,7 @@ def test_supabase_jwt_auth_and_role_mapping_live_mode(tmp_path, monkeypatch):
             self.key = key
 
     class MockPyJWKClient:
-        def __init__(self, url):
+        def __init__(self, url, **kwargs):
             pass
         def get_signing_key_from_jwt(self, token):
             return MockSigningKey(public_key)
@@ -424,31 +424,31 @@ def test_supabase_jwt_auth_and_role_mapping_live_mode(tmp_path, monkeypatch):
     assert client.get('/api/me').status_code == 401
 
     # 3. Expired JWT token returns 401
-    expired_token = create_jwt('supabase-uuid-driver-1234', exp_delta=timedelta(minutes=-10))
+    expired_token = create_jwt('00000000-0000-4000-8000-000000000011', exp_delta=timedelta(minutes=-10))
     r_exp = client.get('/api/me', headers={'Authorization': f'Bearer {expired_token}'})
     assert r_exp.status_code == 401
 
     # 4. Invalid issuer returns 401
-    bad_iss_token = create_jwt('supabase-uuid-driver-1234', iss='https://malicious-issuer.com/auth/v1')
+    bad_iss_token = create_jwt('00000000-0000-4000-8000-000000000011', iss='https://malicious-issuer.com/auth/v1')
     assert client.get('/api/me', headers={'Authorization': f'Bearer {bad_iss_token}'}).status_code == 401
 
     # 5. Invalid audience returns 401
-    bad_aud_token = create_jwt('supabase-uuid-driver-1234', aud='wrong-audience')
+    bad_aud_token = create_jwt('00000000-0000-4000-8000-000000000011', aud='wrong-audience')
     assert client.get('/api/me', headers={'Authorization': f'Bearer {bad_aud_token}'}).status_code == 401
 
     # 6. Valid signature but unmapped Supabase UUID in database returns 403
-    unmapped_token = create_jwt('unmapped-supabase-uuid-9999')
+    unmapped_token = create_jwt('00000000-0000-4000-8000-000000000013')
     r_unmapped = client.get('/api/me', headers={'Authorization': f'Bearer {unmapped_token}'})
     assert r_unmapped.status_code == 403
     assert 'Active user mapping required' in r_unmapped.json()['detail']
 
     # 7. Inactive user returns 403
-    inactive_token = create_jwt('supabase-uuid-inactive-5678')
+    inactive_token = create_jwt('00000000-0000-4000-8000-000000000012')
     r_inactive = client.get('/api/me', headers={'Authorization': f'Bearer {inactive_token}'})
     assert r_inactive.status_code == 403
 
     # 8. Valid Driver JWT returns 200 on /me and Driver dashboard
-    driver_token = create_jwt('supabase-uuid-driver-1234')
+    driver_token = create_jwt('00000000-0000-4000-8000-000000000011')
     r_me = client.get('/api/me', headers={'Authorization': f'Bearer {driver_token}'})
     assert r_me.status_code == 200
     user_data = r_me.json()

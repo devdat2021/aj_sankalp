@@ -4,9 +4,10 @@ import AuthProvider from './components/AuthProvider'
 import { useAuth } from './components/AuthContext'
 import Workspace from './components/Workspace'
 import Landing from './components/Landing'
+import AuthPage from './components/AuthPage'
 import { roles } from './services/roles'
 import { supabase, allowDemo } from './services/auth'
-import { ActionButton, ActionForm, Field } from './components/Forms'
+import { ActionButton } from './components/Forms'
 import './coordination.css'
 import './workspace.css'
 import './portals/driver/display.css'
@@ -22,12 +23,12 @@ function Home() {
     try { await auth.demo(role) } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
   return <Landing enter={enter} busy={busy} demoEnabled={allowDemo} hasSignIn={Boolean(supabase)}>
-    {(error || auth.error) && <p role="alert" className="cw-error">{error || auth.error}</p>}
+    {(error || auth.error) && <div role="alert" className="cw-error"><p>{error || auth.error}</p>{auth.error && <><p>If your account has no access yet, ask an administrator to assign your role.</p><ActionButton action={auth.logout}>Clear session</ActionButton></>}</div>}
     {auth.user && !roles[auth.user.role] && <section className="workflow-content cw-card"><p>Your account needs a supported role mapping.</p><ActionButton action={auth.logout}>Sign out</ActionButton></section>}
-    {supabase && <section className="workflow-content cw-login"><h2>Sign in to your workspace</h2><p>Your account determines your role and assignments.</p><ActionForm label="Sign in" submit={f => auth.login(f.email, f.password)}><Field label="Email" name="email" type="email" autoComplete="username" /><Field label="Password" name="password" type="password" autoComplete="current-password" /></ActionForm></section>}
+    {supabase && <section className="workflow-content cw-login cw-card"><h2>Your workspace awaits</h2><p>Sign in or create an account to join your team.</p><div className="cw-actions"><Link to="/login">Sign in</Link><Link to="/register">Create an account</Link></div></section>}
   </Landing>
 }
 
 export default function App() {
-  return <BrowserRouter><AuthProvider><Routes><Route path="/" element={<Home />} />{Object.keys(roles).map(role => <Route key={role} path={`/${role}`} element={<Workspace role={role} />} />)}<Route path="/caption" element={<Navigate to="/captain" replace />} /><Route path="/truck" element={<Navigate to="/driver" replace />} /><Route path="/truck-operator" element={<Navigate to="/driver" replace />} /><Route path="*" element={<main className="cw-loading">Page not found. <Link to="/">Return to CoastWatch</Link></main>} /></Routes></AuthProvider></BrowserRouter>
+  return <BrowserRouter><AuthProvider><Routes><Route path="/" element={<Home />} /><Route path="/login" element={<AuthPage key="login" />} /><Route path="/register" element={<AuthPage key="register" mode="register" />} />{Object.keys(roles).map(role => <Route key={role} path={`/${role}`} element={<Workspace role={role} />} />)}<Route path="/caption" element={<Navigate to="/captain" replace />} /><Route path="/truck" element={<Navigate to="/driver" replace />} /><Route path="/truck-operator" element={<Navigate to="/driver" replace />} /><Route path="*" element={<main className="cw-loading">Page not found. <Link to="/">Return to CoastWatch</Link></main>} /></Routes></AuthProvider></BrowserRouter>
 }
