@@ -70,10 +70,82 @@ def route_request_view(row, sh):
     return row | ({'status': 'superseded', 'superseded_reason': reason} if reason else {})
 
 
+def slot_conflict(sh, slot_timestamp):
+    """Detect if the cargo ETA conflicts with the approved port pickup slot.
+
+    Returns (conflict, reason) tuple.
+    - conflict: True if ETA indicates arrival after the slot timestamp
+    - reason: human-readable explanation, or None if no conflict
+    """
+    eta_hours = sh.get('eta_hours', 0)
+    slot_ts = slot_timestamp  # timezone-aware UTC ISO string
+
+    if not slot_ts:
+        return False, None  # no slot set, no conflict
+
+    from datetime import datetime, timezone
+
+    try:
+        slot_dt = datetime.fromisoformat(slot_ts)
+        now = datetime.now(timezone.utc)
+        # If slot is in the past and eta_hours > 0, it's a conflict
+        if slot_dt < now and eta_hours > 0:
+            return True, f'Slot {slot_ts} is in the past; ETA {eta_hours}h from creation would arrive later'
+        # If slot is in the future, no conflict (yet)
+        return False, None
+    except (ValueError, TypeError):
+        return False, None  # cannot parse slot timestamp
+
+
+def request_slot_revision(state, user, sid, slot_timestamp):
+    """Logistics requests a revised port pickup slot for a consignment.
+
+    Returns (ok, reason) tuple.  When ok=True, a port_request is created with kind='slot_revision'.
+    """
+    from app.api.workflow import shipment as ship_func
+    sh = ship_func(state, user, sid)
+
+    # Check company match
+    if not (bool(user.get('company_id')) and sh.get('company_id') == user['company_id']):
+        return False, 'Company mismatch'
+
+    # Check consignment is in a state where slot revision is allowed
+    if sh['status'] in {'in_transit', 'delivered'}:
+        return False, f'Cannot revise slot for cargo in status {sh["status"]}'
+
+    from uuid import uuid4
+    from datetime import datetime, timezone
+
+    row = {
+        'id': str(uuid4()),
+        'port_id': sh['port_id'],
+        'shipment_id': sh['id'],
+        'kind': 'slot_revision',
+        'status': 'pending',
+        'requester_id': user['id'],
+        'created_at': now(),
+        # Slot revision specific fields
+        'slot_timestamp': slot_timestamp,
+        'reason': f'ETA revision request for consignment {sh["id"]}',
+    }
+    state['port_requests'].append(row)
+    notify(state, f'Slot revision requested: {sh["id"]}', [sh])
+    return True, None
+
+
+
+
+
+
 def supersede_routes(state, sh, reason):
     for row in state['requests']:
         if row['shipment_id'] == sh['id'] and row['status'] == 'pending':
             row.update(status='superseded', superseded_reason=reason, superseded_at=now())
+
+
+
+
+
 
 
 def eligibility(state, user, sid):

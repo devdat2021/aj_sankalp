@@ -11,6 +11,14 @@ function truckDriverName(sh, data) {
   return driver ? driver.name : truck.driver_id || 'Not assigned'
 }
 
+function slotStatus(sh) {
+  // Display slot conflict or slot revision status
+  if (!sh.slot_conflict && !sh.slot_timestamp) return 'No slot set'
+  if (sh.slot_conflict) return `Conflict: ${sh.slot_conflict}`
+  if (sh.slot_timestamp) return `Slot: ${sh.slot_timestamp}`
+  return 'Unknown'
+}
+
 export default function Cargo({ data, user, mutate }) {
   const logistics = user.role === 'logistics'
   return <div className="cw-stack">
@@ -42,6 +50,11 @@ export default function Cargo({ data, user, mutate }) {
     <span>Current assignment: {sh.truck_id || 'None'}</span>
   </div>
   <ActionForm label="Assign truck & route" disabled={!data.vehicles.length} submit={f => mutate(`/shipments/${sh.id}/assignment`, 'PUT', { truck_id: f.truck_id, route: route(f) })}><Field label="Company truck" name="truck_id" options={options(data.vehicles)} value={sh.truck_id || undefined} /><Field label="Route / instructions" name="route_name" /><p className="cw-muted">Changes during a trip use a reroute request.</p></ActionForm></details>}
+      {logistics && !['in_transit', 'delivered'].includes(sh.status) && <details open><summary>Request slot revision</summary>
+        <p>Slot conflict: {slotStatus(sh)}</p>
+        <ActionForm label="Request slot revision" submit={f => mutate(`/shipments/${sh.id}/slot-revision`, 'POST', { slot_timestamp: f.slot_timestamp })}><Field label="Slot timestamp (UTC ISO)" name="slot_timestamp" type="text" placeholder="e.g. 2026-12-01T10:00:00Z" /></ActionForm>
+        {sh.slot_conflict && <p className="cw-muted small">Conflict detected: {sh.slot_conflict}</p>}
+      </details>}
       {logistics && sh.status !== 'delivered' && <details><summary>Request port handling or truck access</summary><ActionForm label="Send port request" submit={f => mutate('/port-requests', 'POST', { shipment_id: sh.id, kind: f.kind, requested_at: iso(f.time) })}><Field label="Request type" name="kind" options={sh.truck_id ? ['handling', 'truck_access'] : ['handling']} /><Field label="Requested time (your local time)" name="time" type="datetime-local" /></ActionForm></details>}
       {['driver', 'logistics'].includes(user.role) && sh.status !== 'delivered' && <details><summary>Request a route change</summary>{data.requests.some(r => r.shipment_id === sh.id && r.status === 'pending') ? <p>A route change is awaiting logistics approval. See Requests.</p> : <ActionForm label="Submit reroute request" submit={f => mutate('/route-requests', 'POST', { shipment_id: sh.id, reason: f.reason, options: [route(f)] })}><Field label="Reason for changing route" name="reason" minLength={3} /><Field label="Proposed route / instructions" name="route_name" /><Field label="Additional time (hours)" name="delay" type="number" min="0" step="any" value={0} /><Field label="Estimated additional cost (₹)" name="cost" type="number" min="0" value={0} /><Field label="Estimated risk index (0–100)" name="risk" type="number" min="0" max="100" value={0} /><p className="cw-muted">Your proposal becomes active only after logistics approval.</p></ActionForm>}</details>}
       {user.role === 'port' && ['at_port', 'unloaded'].includes(sh.status) && <ActionButton action={() => mutate(`/shipments/${sh.id}/events`, 'POST', { event: sh.status === 'at_port' ? 'unloaded' : 'ready_for_pickup' })}>{sh.status === 'at_port' ? 'Confirm cargo unloaded' : 'Mark ready for pickup'}</ActionButton>}
@@ -77,10 +90,12 @@ export default function Cargo({ data, user, mutate }) {
             {sh.truck_id && <span><strong>Truck:</strong> {sh.truck_id}</span>}
             {sh.truck_id && <span><strong>Driver:</strong> {truckDriverName(sh, data)}</span>}
             {sh.route_id && <span><strong>Route:</strong> {sh.route_id} {sh.route_name ? `· ${sh.route_name}` : ''}</span>}
+            {sh.slot_timestamp && <span><strong>Slot:</strong> {sh.slot_timestamp}</span>}
           </div>
           {sh.port_id && <p><strong>Handling port:</strong> {sh.port_id}</p>}
           {sh.origin && <p><strong>Origin:</strong> {sh.origin}</p>}
           {sh.destination && <p><strong>Destination:</strong> {sh.destination}</p>}
+          {sh.slot_conflict && <p className="cw-error"><strong>Slot conflict:</strong> {sh.slot_conflict}</p>}
         </div>
       ) : (
         <p className="cw-muted">Not assigned: no vessel, truck, or route.</p>

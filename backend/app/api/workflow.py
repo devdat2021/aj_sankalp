@@ -9,7 +9,7 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
 from app.services.port_service import find, audit, now
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes, slot_conflict, request_slot_revision, slot_conflict, request_slot_revision
 from copy import deepcopy
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
@@ -53,6 +53,22 @@ def shipment_eligibility(id: str,user=Depends(current_user)):
     with transaction() as s:
         el = eligibility(s,user,id)
         return el
+
+@router.post('/shipments/{id}/slot-revision')
+def request_slot_revision_endpoint(id: str, body: dict, user=Depends(current_user)):
+    """Logistics requests a revised port pickup slot for a consignment.
+
+    Body: { "slot_timestamp": "2026-12-01T10:00:00Z" }
+    """
+    require(user,'logistics')
+    slot_timestamp = body.get('slot_timestamp')
+    if not slot_timestamp:
+        raise HTTPException(400, 'slot_timestamp is required')
+    with transaction() as s:
+        ok, reason = request_slot_revision(s,user,id, slot_timestamp)
+        if not ok:
+            raise HTTPException(409, reason)
+        return {'ok': True, 'reason': reason, 'status': 'pending'}
 
 @router.post('/shipments',status_code=201)
 def create_shipment(body: Consignment,user=Depends(current_user)):
