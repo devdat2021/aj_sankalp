@@ -113,6 +113,23 @@ def request_slot_revision(state, user, sid, slot_timestamp):
     if sh['status'] in {'in_transit', 'delivered'}:
         return False, f'Cannot revise slot for cargo in status {sh["status"]}'
 
+    # Validate slot_timestamp format
+    try:
+        datetime.fromisoformat(slot_timestamp)
+    except (ValueError, TypeError):
+        return False, 'Invalid slot_timestamp format. Must be ISO 8601 UTC string (e.g. 2026-12-01T10:00:00Z)'
+
+    # Check for existing pending slot_revision for this shipment
+    sh = ship_func(state, user, sid)
+    existing_pending = any(
+        r.get('shipment_id') == sh['id']
+        and r.get('kind') == 'slot_revision'
+        and r.get('status') == 'pending'
+        for r in state.get('port_requests', [])
+    )
+    if existing_pending:
+        return False, 'A slot revision request is already pending for this consignment. Wait for it to be resolved or rejected.'
+
     from uuid import uuid4
     from datetime import datetime, timezone
 
@@ -194,10 +211,22 @@ def eligibility(state, user, sid):
             and r.get('truck_id') == truck_id
             for r in state.get('port_requests', [])
         )
+    # --- Slot revision approved ---
+    # An approved slot_revision replaces truck_access for the assigned truck
+    slot_revision_approved = False
+    if truck_assigned:
+        slot_revision_approved = any(
+            r.get('shipment_id') == sh['id']
+            and r.get('kind') == 'slot_revision'
+            and r.get('status') == 'approved'
+            and r.get('truck_id') == truck_id
+            for r in state.get('port_requests', [])
+        )
 
-    # --- Pickup allowed: ready_for_pickup AND truck_access_approved AND unloaded ---
-    # Pickup is allowed only when all three prerequisites are met.
-    pickup_allowed = ready_for_pickup and truck_access_approved and unloaded
+    # --- Pickup allowed: ready_for_pickup AND (truck_access_approved OR slot_revision_approved) AND unloaded ---
+    # Pickup is allowed when all three prerequisites are met.
+    # Either truck_access approved OR an approved slot_revision for the same truck.
+    pickup_allowed = ready_for_pickup and (truck_access_approved or slot_revision_approved) and unloaded
 
     return {
         'status': status,
@@ -215,7 +244,7 @@ def eligibility(state, user, sid):
 
 
 def _blocked_reason(ready_for_pickup, truck_access_approved, unloaded,
-                    status, truck_id, vessel_arrived):
+                    status, truck_id, vessel_arrived, slot_revision_approved=False):
     """Return a human-readable reason why pickup is blocked."""
     if ready_for_pickup and truck_access_approved and unloaded:
         return None  # pickup allowed
@@ -226,7 +255,7 @@ def _blocked_reason(ready_for_pickup, truck_access_approved, unloaded,
         reasons.append('cargo not unloaded')
     if not ready_for_pickup:
         reasons.append('port has not marked ready for pickup')
-    if not truck_access_approved:
+    if not truck_access_approved and not slot_revision_approved:
         reasons.append('truck access not approved')
     if not truck_id:
         reasons.append('no truck assigned')

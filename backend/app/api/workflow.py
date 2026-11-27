@@ -46,7 +46,37 @@ def dashboard(role: str,user=Depends(current_user)):
 def get_shipment(id: str,user=Depends(current_user)):
     with transaction() as s:
         sh = shipment(s,user,id)
-        return sh | {'history': consignment_history(s,user,id)}
+        # Include slot conflict info for logistics view
+        el = eligibility(s,user,id)
+        slot_conflict_val = None
+        slot_timestamp_val = None
+        # Check for approved slot_revision or truck_access
+        truck_id = sh.get('truck_id')
+        if truck_id:
+            # Check for approved slot_revision matching the truck
+            for pr in s.get('port_requests', []):
+                if pr.get('shipment_id') == sh['id'] \
+                   and pr.get('kind') == 'slot_revision' \
+                   and pr.get('status') == 'approved' \
+                   and pr.get('truck_id') == truck_id:
+                    slot_timestamp_val = pr.get('slot_timestamp')
+                    # Check if slot is in the past with eta_hours > 0
+                    eta_hours = sh.get('eta_hours', 0)
+                    if slot_timestamp_val and eta_hours > 0:
+                        from datetime import datetime, timezone
+                        try:
+                            slot_dt = datetime.fromisoformat(slot_timestamp_val)
+                            if slot_dt < datetime.now(timezone.utc):
+                                slot_conflict_val = f'Slot {slot_timestamp_val} is in the past; ETA {eta_hours}h from creation would arrive later'
+                        except (ValueError, TypeError):
+                            pass
+                    break
+        # Also check if there's a direct slot_conflict from eligibility
+        if el.get('blocked_reason') and el.get('vessel_arrived'):
+            slot_conflict_val = el['blocked_reason']
+        return {**sh, 'history': consignment_history(s,user,id), 
+                'slot_conflict': slot_conflict_val, 
+                'slot_timestamp': slot_timestamp_val}
 
 @router.get('/shipments/{id}/eligibility')
 def shipment_eligibility(id: str,user=Depends(current_user)):
