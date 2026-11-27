@@ -8,3 +8,7 @@ backend/data/state.json
 
 .venv/
 *.zip
+
+backend/.env
+__pycache__/
+*.pyc
