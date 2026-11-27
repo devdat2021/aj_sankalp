@@ -24,7 +24,7 @@ export default function AuthPage({ mode = 'login' }) {
     setBusy(true)
     try {
       if (registering) {
-        const data = await auth.register(fields.name.trim(), fields.email.trim(), fields.password)
+        const data = await auth.register(fields.name.trim(), fields.email.trim(), fields.password, fields.requestedRole)
         setResult({ hasSession: Boolean(data.session) })
       } else await auth.login(fields.email.trim(), fields.password)
     } catch (err) { setError(err.message) } finally { setBusy(false) }
@@ -43,10 +43,26 @@ export default function AuthPage({ mode = 'login' }) {
         {result ? <div className="auth-confirmation" role="status"><Mail size={32} aria-hidden="true" /><p>{result.hasSession ? 'Your account is ready for an administrator to assign access.' : 'If this email is eligible for registration, you’ll receive a confirmation link. Open it to verify your email, then sign in.'}</p><p>An administrator will assign your role and workspace. Already registered? Sign in with your existing password.</p><Link className="auth-submit" to="/login">Go to sign in</Link></div> : <>
           <p className="auth-subtitle">{registering ? 'Join your team. Your administrator will assign the right workspace.' : 'Sign in to continue to your assigned workspace.'}</p>
           {!supabase && <p className="auth-error" role="alert">Sign-in is not configured yet. Contact your administrator.</p>}
-          {(error || auth.error) && <div className="auth-error" role="alert"><p>{error || auth.error}</p>{auth.accountId && !error && <><p>Your account needs active workspace access. Share this account ID with your administrator:</p><code>{auth.accountId}</code><div className="auth-access-actions"><ActionButton action={auth.retryAccess}>Check access again</ActionButton><ActionButton action={auth.logout}>Sign out</ActionButton></div></>}</div>}
+          {(error || auth.error) && <div className="auth-error" role="alert">
+            <p>{error || auth.error}</p>
+            {!error && <>
+              {auth.accessStatus === 'pending'
+                ? <p>Your account {auth.accountEmail ? `(${auth.accountEmail}) ` : ''}is awaiting administrator role &amp; scope assignment.</p>
+                : auth.accessStatus === 'unavailable'
+                  ? <p>Session may have expired or the backend is unreachable. Click <strong>Check access again</strong> to refresh, or sign out and sign back in.</p>
+                  : null}
+              <div className="auth-access-actions"><ActionButton action={auth.retryAccess}>Check access again</ActionButton><ActionButton action={auth.logout}>Sign out</ActionButton></div>
+            </>}
+          </div>}
           <form onSubmit={submit} className="auth-form">
             <fieldset disabled={busy || auth.loading || !supabase}>
               {registering && <label>Full name<input name="name" autoComplete="name" required maxLength={120} placeholder="Your full name" /></label>}
+              {registering && <label>Requested role<select name="requestedRole" defaultValue="port" required>
+                <option value="port">Port Operations</option>
+                <option value="logistics">Logistics Company</option>
+                <option value="driver">Truck Operator</option>
+                <option value="captain">Vessel Captain</option>
+              </select></label>}
               <label>Email address<input name="email" type="email" autoComplete="username" required placeholder="you@company.com" /></label>
               <label>Password<div className="auth-password"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 8 : undefined} aria-describedby={registering ? 'password-help' : undefined} /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}>{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button></div></label>
               {registering && <><p id="password-help" className="auth-help">Use at least 8 characters.</p><label>Confirm password<input name="confirm" type={showPassword ? 'text' : 'password'} autoComplete="new-password" required minLength={8} /></label></>}

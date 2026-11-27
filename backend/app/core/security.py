@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 from app.database.connection import transaction
+from app.services import work_access
 from functools import lru_cache
 from uuid import UUID
 import httpx
@@ -77,6 +78,13 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials = D
     if required is None or any(not isinstance(user.get(key), str) or not user[key].strip() for key in required):
         raise HTTPException(403, 'Complete role and scope mapping required')
     return user
+
+def workflow_identity(request: Request, credentials=Depends(bearer)):
+    if credentials and credentials.credentials.startswith('work-'):
+        work_access.protect(request, 240)
+        return work_access.digest(credentials.credentials)
+    return current_user(request, credentials)
+
 
 def administrator(user=Depends(current_user)):
     if user['role'] != 'admin' and not user.get('is_admin'): raise HTTPException(403, 'Administrator access required')

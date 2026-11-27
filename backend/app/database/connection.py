@@ -2,10 +2,12 @@ import copy
 import json
 import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from fastapi import HTTPException
 from app.core.config import settings
+from app.services.work_access import prune
 from app.database.collections import seed, migrate
 
 lock = threading.RLock()
@@ -14,7 +16,7 @@ path = Path(__file__).resolve().parents[2] / 'data' / 'state.json'
 LIST_COLLECTIONS = (
     'users', 'companies', 'vessels', 'vehicles', 'shipments',
     'incidents', 'requests', 'port_requests', 'docking_requests',
-    'alerts', 'audit', 'events', 'intelligence_jobs', 'recommendations',
+    'work_access', 'alerts', 'audit', 'events', 'intelligence_jobs', 'recommendations',
 )
 
 _client = None
@@ -97,6 +99,7 @@ def transaction():
                     migrate(state, settings.demo_mode)
                     before = {k: json.dumps(state.get(k), sort_keys=True) for k in ('port', *LIST_COLLECTIONS, 'schema_version')}
                     yield state
+                    prune(state)
                     changed = [k for k in before if json.dumps(state.get(k), sort_keys=True) != before[k]]
                     if changed:
                         res = db['meta'].update_one(
@@ -116,10 +119,23 @@ def transaction():
         else:
             if not settings.demo_mode:
                 raise HTTPException(503, 'MongoDB is required outside demo mode')
-            state = json.loads(path.read_text()) if path.exists() else seed()
+            previous = path.read_text() if path.exists() else None
+            state = json.loads(previous) if previous is not None else seed()
             migrate(state, settings.demo_mode)
             yield state
+            prune(state)
+            serialized = json.dumps(state)
+            if serialized == previous:
+                return
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix('.tmp')
-            tmp.write_text(json.dumps(state))
-            os.replace(tmp, path)
+            tmp.write_text(serialized)
+            # Windows readers and file indexers can briefly hold the destination open.
+            for attempt in range(6):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if os.name != 'nt' or attempt == 5:
+                        raise
+                    time.sleep(0.01 * 2 ** attempt)

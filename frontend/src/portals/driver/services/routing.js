@@ -48,11 +48,12 @@ async function fetchRoute(points, prefix, name, zones) {
 
 export async function getRoutes(shipment, activeIncidents = [], demo = false) {
   const zones = buildHazardZones(activeIncidents, demo)
-  const key = JSON.stringify([shipment.location, shipment.dropoff])
-  const results = await Promise.allSettled([
-    fetchRoute([shipment.location, shipment.dropoff], 'road', 'Coastal road', zones),
-    fetchRoute([shipment.location, [13.045, 74.85], [13.12, 74.89], [13.24, 74.85], shipment.dropoff], 'inland', 'Inland diversion', zones),
-  ])
+  const key = JSON.stringify([shipment.location, shipment.dropoff, demo])
+  const requests = [fetchRoute([shipment.location, shipment.dropoff], 'road', 'Road route', zones)]
+  if (demo) {
+    requests.push(fetchRoute([shipment.location, [13.045, 74.85], [13.12, 74.89], [13.24, 74.85], shipment.dropoff], 'inland', 'Inland diversion', zones))
+  }
+  const results = await Promise.allSettled(requests)
   let roads = results.flatMap(result => result.status === 'fulfilled' ? result.value : [])
   if (roads.length) {
     cachedRoutes.set(key, roads)

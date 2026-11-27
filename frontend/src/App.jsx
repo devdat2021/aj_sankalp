@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom'
 import { useState } from 'react'
+import DriverWork from './portals/driver/DriverWork'
 import AuthProvider from './components/AuthProvider'
 import { useAuth } from './components/AuthContext'
 import Workspace from './components/Workspace'
@@ -29,6 +30,22 @@ function Home() {
   </Landing>
 }
 
+function SignedInRoutes() {
+  return <AuthProvider><Routes>
+    <Route path="/" element={<Home />} />
+    <Route path="/login" element={<AuthPage key="login" />} />
+    <Route path="/register" element={<AuthPage key="register" mode="register" />} />
+    {Object.keys(roles).map(role => <Route key={role} path={`/${role}`} element={<Workspace role={role} />} />)}
+    <Route path="/caption" element={<Navigate to="/captain" replace />} />
+    <Route path="/truck" element={<Navigate to="/driver" replace />} />
+    <Route path="/truck-operator" element={<Navigate to="/driver" replace />} />
+    <Route path="*" element={<main className="cw-loading">Page not found. <Link to="/">Return to CoastWatch</Link></main>} />
+  </Routes></AuthProvider>
+}
+
 export default function App() {
-  return <BrowserRouter><AuthProvider><Routes><Route path="/" element={<Home />} /><Route path="/login" element={<AuthPage key="login" />} /><Route path="/register" element={<AuthPage key="register" mode="register" />} />{Object.keys(roles).map(role => <Route key={role} path={`/${role}`} element={<Workspace role={role} />} />)}<Route path="/caption" element={<Navigate to="/captain" replace />} /><Route path="/truck" element={<Navigate to="/driver" replace />} /><Route path="/truck-operator" element={<Navigate to="/driver" replace />} /><Route path="*" element={<main className="cw-loading">Page not found. <Link to="/">Return to CoastWatch</Link></main>} /></Routes></AuthProvider></BrowserRouter>
+  return <BrowserRouter><Routes>
+    <Route path="/driver/work" element={<DriverWork />} />
+    <Route path="*" element={<SignedInRoutes />} />
+  </Routes></BrowserRouter>
 }

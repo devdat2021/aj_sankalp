@@ -72,7 +72,7 @@ export function createDriverApi(token) {
 export function driverShipment(row, data, user, demo = false) {
   const truck = data.vehicles?.find(v => v.id === row.truck_id)
   const accessSlot = (data.port_requests || []).find(r => r.shipment_id === row.id && r.kind === 'truck_access' && r.status === 'approved')?.slot
-  const activeHazards = (data.incidents || []).filter(i => i.shipment_id === row.id && ['reported', 'confirmed'].includes(i.status))
+  const activeHazards = (data.incidents || []).filter(i => i.shipment_id === row.id && i.category !== 'delay' && ['reported', 'confirmed'].includes(i.status))
   const isStopped = row.hazard_stopped ?? Boolean(truck?.status === 'Stopped / Unable to continue' || activeHazards.length > 0)
   return {
     ...row,

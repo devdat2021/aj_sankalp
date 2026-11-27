@@ -8,6 +8,8 @@ def require(user, *roles):
         raise HTTPException(403, 'Role cannot perform this action')
 
 def visible(user, shipment):
+    if user.get('work_shipment') and shipment['id'] != user['work_shipment']:
+        return False
     role=user['role']
     if role=='port': return bool(user.get('port_id')) and shipment.get('port_id')==user['port_id']
     if role=='logistics': return bool(user.get('company_id')) and shipment.get('company_id')==user['company_id']
