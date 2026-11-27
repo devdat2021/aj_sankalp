@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Anchor, Navigation, Bell, TriangleAlert, Truck, RefreshCw, GitBranch, ChevronUp, ChevronDown, X } from 'lucide-react'
 import ShipmentCard from './components/ShipmentCard'
 import NavigationMap from './components/NavigationMap'
@@ -6,22 +6,28 @@ import RouteAlternatives from './components/RouteAlternatives'
 import IncidentModal from './components/IncidentModal'
 import DistressButton from './components/DistressButton'
 import AlertsPanel from './components/AlertsPanel'
-import { driverApi } from './services/driverApi'
-import { getRoutes } from './services/routing'
+import { createDriverApi, driverShipment } from './services/driverApi'
+import { useAuth } from '../../components/AuthContext'
+import { api } from '../../services/api'
+import { ActionButton } from '../../components/Forms'
+import { stamp } from '../../services/format'
+import Weather from '../../components/Weather'
+import { Tracking } from '../../components/Operations'
+import { getRoutes, findConflicts } from './services/routing'
 import './driver.css'
 
 export default function DriverPortal() {
-  const [shipment, setShipment] = useState(null)
-  const [alerts, setAlerts] = useState([])
+  const { token, user, logout } = useAuth()
+  const driverApi = useMemo(() => createDriverApi(token), [token])
+  const [data, setData] = useState(null)
+  const [shipmentId, setShipmentId] = useState('')
   const [routes, setRoutes] = useState([])
-  const [activeId, setActiveId] = useState('')
   const [selectedId, setSelectedId] = useState('')
-  const [notice, setNotice] = useState('Fetching road routes…')
-  const [loadingRoutes, setLoadingRoutes] = useState(true)
+  const [notice, setNotice] = useState('Select a consignment to preview road options.')
+  const [loadingRoutes, setLoadingRoutes] = useState(false)
   const [pending, setPending] = useState(false)
   const [pendingAlert, setPendingAlert] = useState(null)
   const [incidentOpen, setIncidentOpen] = useState(false)
-  const [temperature, setTemperature] = useState(2.4)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [panel, setPanel] = useState('trip')
@@ -31,60 +37,70 @@ export default function DriverPortal() {
     setPanel(nextPanel)
     setSheetExpanded(true)
   }
+  const raw = data?.shipments.find(s => s.id === shipmentId) || data?.shipments[0]
+  const shipment = raw ? driverShipment(raw, data, user) : null
+  const temperature = raw?.temperature ?? 0
+  const activeId = raw?.route_id || ''
+  const alerts = (data?.alerts || []).map(a => ({ ...a, title: a.message, category: 'Operations', acknowledged: a.read_by.includes(user.id) }))
+  const routeRequests = (data?.requests || []).filter(r => r.shipment_id === raw?.id)
+  const waiting = routeRequests.some(r => r.status === 'pending')
+  const approvedRoute = raw?.route?.points ? { ...raw.route, conflicts: findConflicts(raw.route.points), source: raw.route.source || 'Operator supplied route' } : null
+  const displayRoutes = approvedRoute ? [approvedRoute, ...routes.filter(r => r.id !== approvedRoute.id)] : routes
+  const refresh = useCallback(async () => {
+    try { setData(await driverApi.getDashboard()); setError('') } catch (err) { setError(err.message) }
+  }, [driverApi])
   useEffect(() => {
-    let cancelled = false
-    Promise.all([driverApi.getShipment(), driverApi.getAlerts(), getRoutes()]).then(([data, updates, routing]) => {
-      if (cancelled) return
-      setShipment(data); setAlerts(updates); setRoutes(routing.routes); setNotice(routing.notice)
-      setActiveId(routing.routes[0].id); setSelectedId(routing.routes[0].id); setLoadingRoutes(false)
-    }).catch(err => { if (!cancelled) setError(err.message) })
-    const timer = setInterval(() => setTemperature(value => Math.max(1.8, Math.min(3.2, value + (Math.random() - 0.5) * 0.3))), 5000)
-    return () => { cancelled = true; clearInterval(timer) }
-  }, [])
+    const initial = setTimeout(refresh, 0)
+    const timer = setInterval(() => { if (!document.hidden) refresh() }, 8000)
+    return () => { clearTimeout(initial); clearInterval(timer) }
+  }, [refresh])
+  async function mutate(path, method, body) {
+    const result = await api(path, token, method, body)
+    await refresh()
+    return result
+  }
   async function refreshRoutes() {
+    if (!shipment?.dropoff) { setError('Destination coordinates are not available for this consignment. Request route instructions from logistics.'); return }
     setLoadingRoutes(true)
     try {
-      const result = await getRoutes()
+      const result = await getRoutes(shipment)
       setRoutes(result.routes); setNotice(result.notice)
-      // A new geometry needs a new approval, so reset to the default assignment.
-      setActiveId(result.routes[0].id); setSelectedId(result.routes[0].id)
-      setMessage('Routes refreshed. Default assigned route restored; request approval for any alternative.')
+      setSelectedId(result.routes[0]?.id || '')
+      setMessage('Route previews refreshed. The logistics-approved route remains unchanged.')
     } catch (err) { setError(err.message) }
     finally { setLoadingRoutes(false) }
   }
   async function requestReroute(route) {
-    setPending(true); setMessage('Rerouting request sent to simulated Port Authority…')
-    try {
-      const response = await driverApi.requestReroute(route)
-      if (response.approved) setActiveId(route.id)
-      setAlerts(await driverApi.getAlerts()); setMessage(response.alert.message)
-    } catch (err) { setError(err.message) }
+    setPending(true)
+    try { await driverApi.requestReroute(route, shipment, approvedRoute); await refresh(); setMessage('Reroute request saved. Awaiting logistics company approval.') }
+    catch (err) { setError(err.message) }
     finally { setPending(false) }
   }
   async function acknowledge(id) {
     setPendingAlert(id)
-    try { setAlerts(await driverApi.acknowledgeAlert(id)) } catch (err) { setError(err.message) }
+    try { await driverApi.acknowledgeAlert(id); await refresh() } catch (err) { setError(err.message) }
     finally { setPendingAlert(null) }
   }
   function reported(incident) {
-    setMessage(`${incident.type} recorded · ${incident.id} · ${new Date(incident.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST. Simulation only; no real authority contacted.`)
+    setMessage(`${incident.type} saved · ${incident.id}. Relevant operators have been notified. No emergency service contacted.`)
+    refresh()
   }
-  const active = routes.find(route => route.id === activeId)
-  const location = shipment ? `${shipment.location[0].toFixed(4)}, ${shipment.location[1].toFixed(4)} · simulated truck position` : ''
+  const active = displayRoutes.find(route => route.id === activeId)
+  const location = shipment ? `${shipment.location[0].toFixed(4)}, ${shipment.location[1].toFixed(4)}` : ''
   const unread = alerts.filter(alert => !alert.acknowledged).length
   const criticalAlert = alerts.find(alert => alert.severity === 'critical' && !alert.acknowledged)
   return <div className="driver-portal">
     <header className="cockpit-header">
       <a className="brand" href="/driver" aria-label="CoastWatch driver home"><span className="brand-icon"><Anchor size={25}/></span><span>CoastWatch<span className="brand-sub">SUPPLY CHAIN MANAGEMENT</span></span></a>
       <div className="workspace-label"><Navigation size={16}/> Driver workspace</div>
-      <div className="header-right"><span className="demo-badge"><i/> DEMO OPERATIONS</span><div className="driver-profile"><span><strong>Arjun Kumar</strong><small>KA 19 AB 4821</small></span><span className="avatar">AK</span></div></div>
+      <div className="header-right"><span className="demo-badge"><i/> SHARED OPERATIONS</span><div className="driver-profile"><span><strong>{user.name}</strong><small>{shipment?.vehicle || user.asset_id}</small></span><ActionButton action={logout}>Sign out</ActionButton></div></div>
     </header>
-    <div className="demo-ribbon">Simulated shipment, location & authority responses. <strong>SOS is not an emergency service.</strong></div>
+    <div className="demo-ribbon">Assigned cargo and decisions are saved. Positions are seeded or manually reported. <strong>SOS is not an emergency service.</strong></div>
     <main className="cockpit-body">
-      {!shipment ? <div className="loading" role="status"><Navigation size={28}/><h1>Preparing your journey</h1><p>{error || 'Loading shipment and road routes…'}</p>{error && <button onClick={() => window.location.reload()}>Retry</button>}</div> : <>
+      {!shipment ? <div className="loading" role="status"><Navigation size={28}/><h1>{data ? 'No consignment assigned' : 'Preparing your journey'}</h1><p>{error || (data ? 'Your logistics company will assign cargo here.' : 'Loading your assigned cargo…')}</p>{error && <button onClick={() => window.location.reload()}>Retry</button>}</div> : <>
         <aside className={`trip-rail ${sheetExpanded ? 'expanded' : ''}`} data-panel={panel} aria-label="Trip information">
           <button className="sheet-toggle" aria-expanded={sheetExpanded} aria-controls="trip-panel-content" onClick={() => setSheetExpanded(value => !value)}>
-            <span><strong>{shipment.destination}</strong><small>{active ? `${Math.round(active.duration / 60)} min · ${(active.distance / 1000).toFixed(1)} km` : 'Calculating route'} <span>· {temperature.toFixed(1)}°C</span></small></span>
+            <span><strong>{shipment.destination}</strong><small>{active ? `${Math.round(active.duration / 60)} min · ${(active.distance / 1000).toFixed(1)} km` : 'Route instructions from logistics'} <span>· {temperature.toFixed(1)}°C</span></small></span>
             {sheetExpanded ? <ChevronDown size={22}/> : <ChevronUp size={22}/>}
           </button>
           <nav className="rail-tabs" aria-label="Trip panels">
@@ -93,22 +109,30 @@ export default function DriverPortal() {
             <button aria-pressed={panel === 'alerts'} onClick={() => openPanel('alerts')}><Bell size={17}/><span>Alerts</span><span className="unread-count">{unread}</span></button>
           </nav>
           <div className="rail-content" id="trip-panel-content">
-            <div className="trip-section"><ShipmentCard shipment={shipment} temperature={temperature} route={active}/></div>
-            <div className="routes-section"><RouteAlternatives routes={routes} activeId={activeId} selectedId={selectedId} onSelect={setSelectedId} onRequest={requestReroute} pending={pending || loadingRoutes}/></div>
-            <div className="alerts-section"><AlertsPanel alerts={alerts} onAcknowledge={acknowledge} pendingId={pendingAlert}/></div>
+            <div className="trip-section">
+              <label className="field-label">Assigned consignment<select value={raw.id} onChange={e => { setShipmentId(e.target.value); setRoutes([]); setSelectedId(''); }} aria-label="Assigned consignment">{data.shipments.map(s => <option key={s.id} value={s.id}>{s.cargo} · {s.id}</option>)}</select></label>
+              <ShipmentCard shipment={shipment} temperature={temperature} route={active}/>
+              <p>Approved route: {raw.route?.name || 'Not assigned'}</p>
+              {['ready_for_pickup','in_transit'].includes(raw.status) && <ActionButton disabled={raw.status==='ready_for_pickup' && !data.port_requests.some(r=>r.shipment_id===raw.id && r.kind==='truck_access' && r.status==='approved' && r.truck_id===raw.truck_id)} action={()=>mutate(`/shipments/${raw.id}/events`,'POST',{event:raw.status==='ready_for_pickup'?'picked_up':'delivered'})}>{raw.status==='ready_for_pickup'?'Confirm pickup':'Confirm delivery'}</ActionButton>}
+              <details><summary>Port access slots</summary>{data.port_requests.filter(r=>r.shipment_id===raw.id).map(r=><p key={r.id}>{r.kind.replaceAll('_',' ')}: {r.status} · {stamp(r.slot || r.requested_at)}</p>)}</details><details><summary>Movement history</summary>{raw.events?.map(e=><p key={e.id}>{e.event} · {stamp(e.created_at)}</p>)}</details>
+              <details><summary>Update truck location</summary><div className="workflow-content"><Tracking data={{...data,vessels:[]}} user={user} mutate={mutate}/></div></details>
+              <details><summary>Port weather</summary><div className="workflow-content"><Weather port={data.port} token={token}/></div></details>
+            </div>
+            <div className="routes-section"><button onClick={refreshRoutes} disabled={loadingRoutes}>Load road alternatives</button><RouteAlternatives routes={displayRoutes} activeId={activeId} selectedId={selectedId} onSelect={setSelectedId} onRequest={requestReroute} pending={pending || loadingRoutes || waiting || raw.status === 'delivered'}/>{routeRequests.map(r=><p key={r.id}>Reroute: <strong>{r.status}</strong> · {r.reason}</p>)}<p>{!raw.route?.points && raw.route ? 'Approved instructions have no map geometry.' : ''}</p></div>
+            <div className="alerts-section"><AlertsPanel alerts={alerts} onAcknowledge={acknowledge} pendingId={pendingAlert}/><details><summary>Incident reports</summary>{data.incidents.map(i=><p key={i.id}>{i.category}: {i.description} · {i.status}</p>)}</details></div>
           </div>
           <div className="rail-footnote"><span className="online-dot"/> Karnataka coastal corridor <span>Demo / 01</span></div>
         </aside>
         <section className="navigation-stage" aria-label="Shipment navigation">
-          <div className="map-heading"><div><span className="eyebrow">ON THE ROAD</span><h1>New Mangalore Port <span>→</span> Udupi</h1></div><button className="icon-button" onClick={refreshRoutes} disabled={loadingRoutes || pending} aria-label="Refresh road routes"><RefreshCw size={19}/></button></div>
-          {criticalAlert && <div className="critical-banner"><span className="critical-icon"><TriangleAlert size={21}/></span><div><strong>{criticalAlert.title}</strong><p>Simulated disruption · review route options</p></div><button onClick={() => openPanel('routes')}>View routes</button><button className="acknowledge-critical" disabled={pendingAlert !== null} onClick={() => acknowledge(criticalAlert.id)}>{pendingAlert === criticalAlert.id ? 'Updating…' : 'Acknowledge'}</button></div>}
-          <NavigationMap shipment={shipment} routes={routes} activeId={activeId} selectedId={selectedId}/>
+          <div className="map-heading"><div><span className="eyebrow">ON THE ROAD</span><h1>{data.port.name} <span>→</span> {shipment.destination}</h1></div><button className="icon-button" onClick={refreshRoutes} disabled={loadingRoutes || pending} aria-label="Refresh road routes"><RefreshCw size={19}/></button></div>
+          {criticalAlert && <div className="critical-banner"><span className="critical-icon"><TriangleAlert size={21}/></span><div><strong>{criticalAlert.title}</strong><p>Operational warning · review route options</p></div><button onClick={() => openPanel('routes')}>View routes</button><button className="acknowledge-critical" disabled={pendingAlert !== null} onClick={() => acknowledge(criticalAlert.id)}>{pendingAlert === criticalAlert.id ? 'Updating…' : 'Acknowledge'}</button></div>}
+          <NavigationMap shipment={{...shipment,dropoff:shipment.dropoff || shipment.location}} routes={displayRoutes} activeId={activeId} selectedId={selectedId}/>
           <div className="map-source"><span className="source-dot"/><p role="status">{loadingRoutes ? 'Updating routes…' : notice}</p></div>
         </section>
-        <div className="cockpit-actions"><span className="position-label"><span className="online-dot"/> Simulated truck position <strong>13.0250° N, 74.7950° E</strong></span><button className="report-button" onClick={() => setIncidentOpen(true)}><TriangleAlert size={19}/> Report incident</button><DistressButton location={location} onReported={reported}/></div>
+        <div className="cockpit-actions"><span className="position-label"><span className="online-dot"/> Reported / seeded position <strong>{location}</strong></span><button className="report-button" onClick={() => setIncidentOpen(true)}><TriangleAlert size={19}/> Report incident</button><DistressButton driverApi={driverApi} shipment={shipment} location={location} onReported={reported}/></div>
       </>}
       {(message || error) && <div className={`status-message ${error ? 'error-message' : ''}`} role="status"><span>{error || message}</span><button aria-label="Dismiss notification" onClick={() => { setMessage(''); setError('') }}><X size={18}/></button></div>}
     </main>
-    {incidentOpen && <IncidentModal location={location} onClose={() => setIncidentOpen(false)} onReported={reported}/>}
+    {incidentOpen && <IncidentModal driverApi={driverApi} shipment={shipment} location={location} onClose={() => setIncidentOpen(false)} onReported={reported}/>}
   </div>
 }

@@ -4,7 +4,7 @@ Four backend-connected workspaces: `/logistics`, `/port`, `/driver`, `/captain`.
 
 ## Run
 
-Start the backend on 127.0.0.1:8001, then run `npm ci` (if dependencies are absent) and `npm run dev` in this folder. Vite proxies `/api` to the backend. Open http://127.0.0.1:5173. Use `npm run build`, `npm run lint`, and `node --test tests/api.test.js` to validate changes.
+Start the backend on 127.0.0.1:8001, then run `npm ci` (if dependencies are absent) and `npm run dev` in this folder. Vite proxies `/api` to the backend. Open http://127.0.0.1:5173. Use `npm run build`, `npm run lint`, and `node --test tests/api.test.js tests/driverApi.test.js` to validate changes.
 
 ## Supabase setup, when ready
 
@@ -33,8 +33,12 @@ For deployed frontend/backend origins set VITE_API_BASE_URL to the backend origi
 
 Dashboards refresh every eight seconds while visible and after writes. Weather refreshes every ten minutes and supports land/marine forecasts with source, timestamps and stale/unavailable states. Dates are entered/displayed locally and submitted as UTC ISO timestamps. Forms preserve errors and disable controls during submission. Capacity and authorization failures are shown from the backend.
 
-The active frontend now uses `components/Workspace.jsx` and shared workflow components. Earlier portal demo files remain in the tree for reference but are not mounted by App.jsx. Map positions are seeded or manually reported; there is no automatic GPS/AIS feed. Road options are operator-supplied estimates, not generated turn-by-turn routes. Docking compatibility remains an operator decision.
+`Workspace.jsx` applies the shared authentication/role guard and mounts the incoming `PortPortal` and `DriverPortal`. Shared Requests, Cargo, Operations, Weather and form components are reused within those interfaces. Logistics and captain keep their existing workspaces. Crisis requests reuse the common API transport and current bearer token; there is one Supabase session lifecycle.
+
+The port Crisis Simulator includes disruption analysis, what-if comparison, history, network overview, fleet/cold-chain risk and recovery strategies. Its synthetic SQL dataset is separate from operational MongoDB records. The original lightweight operational simulation remains available under Simulation.
+
+The driver Fleet Cockpit loads backend assignments and warnings, persists incidents and reroute requests, and displays approved route geometry after reload. OSRM road alternatives (or a labeled demo fallback) require logistics approval. Unknown destinations without coordinates do not receive a fabricated route. Positions remain seeded or manually reported, with no automatic GPS/AIS feed. Docking compatibility remains an operator decision.
 
 ## Verification
 
-Frontend build/lint and the backend suite pass. Browser smoke checks exercised all four demo roles, logistics reroute approval, port warning delivery, driver acknowledgment, captain docking request, port handling and docking approvals (including slot/berth), and live land weather. Browser checks used isolated local JSON state; Atlas was checked separately with a read-only ping/collection query. Supabase login is wired but not verified against an account yet.
+Run the frontend tests, lint and build above and the backend suite. The integration adds coverage for driver reporting, approval ownership, persisted geometry and both API families. Crisis simulation execution/history and shared port Requests were smoke-tested in the browser with isolated temporary storage. Atlas was checked separately with a read-only ping/collection query. Supabase login is wired but not verified against an account yet. The lazy crisis bundle triggers a non-blocking Vite size warning.

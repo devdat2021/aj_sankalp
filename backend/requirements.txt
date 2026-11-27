@@ -5,3 +5,7 @@ pymongo
 PyJWT[crypto]
 httpx
 pytest
+
+sqlalchemy>=2.0,<3
+networkx>=3.3,<4
+numpy

@@ -56,3 +56,15 @@ This implementation supports one configured port with multiple company/asset sco
 Weather has an eight-second timeout and ten-minute in-memory cache. Cached forecasts are labeled stale on provider failure; otherwise the endpoint returns 503. Incident persistence is independent of weather. Tests mock the provider; live provider availability is not guaranteed.
 
 The frontend now connects all four role workspaces to these APIs, including port approval forms, driver reports, logistics routing decisions, captain movement events and weather. See ../frontend/README.md for Supabase setup and frontend limitations.
+
+## Crisis simulation integration
+
+`app.main` registers the operational router and all eight incoming crisis routers under `/api/crisis`. Every crisis endpoint requires the existing `port_authority` role. Use the same bearer token as the operational API. `GET /api/crisis/health` checks SQL connectivity; `/api/health` retains the operational storage check.
+
+The crisis API provides dashboard, ports, warehouses, routes, shipments, fleet, simulations and scenarios, including what-if comparisons. Exact request contracts are in `/docs`. The intelligence modules supply disruption propagation, route/fleet optimization, cold-chain and priority risk, recovery strategies and explanations. `POST /api/simulation/run` remains available for the original operational estimate.
+
+A separate SQLAlchemy database defaults to `backend/data/crisis.db`; `CRISIS_DATABASE_URL` can override it. Startup creates tables and seeds a synthetic network only when empty. MongoDB operational storage and ownership mappings are unchanged. Crisis records are not automatically synchronized with operational cargo, and running a crisis does not approve or mutate operational routes. Keep the SQL store persistent to retain simulation history. SQLite and local JSON files are ignored by Git; existing local files are preserved.
+
+`LLM_PROVIDER=none` uses deterministic explanations with no external service. Optional `openai` or `watsonx` settings are defined in `app/core/config.py`; keep credentials server-side. Optional model files are not required for the deterministic simulation. Tests isolate both stores and verify crisis authorization plus operational storage isolation.
+
+Road route options may now include validated latitude/longitude geometry, distance, duration and source. The existing logistics approval operation persists these optional fields, allowing the incoming driver map to restore the approved route after reload. Older options without geometry remain valid.

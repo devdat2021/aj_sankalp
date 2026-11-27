@@ -2,19 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthContext } from './AuthContext'
 import { api } from '../services/api'
 import { supabase, allowDemo } from '../services/auth'
+import { setCrisisToken } from '../portals/port/services/crisisApi'
 
 export default function AuthProvider({ children }) {
   const [auth, setAuth] = useState({ token: '', user: null, loading: true, error: '' })
   const generation = useRef(0)
   const resolve = useCallback(async token => {
     const version = ++generation.current
-    if (!token) { setAuth({ token: '', user: null, loading: false, error: '' }); return }
+    if (!token) { setCrisisToken(''); setAuth({ token: '', user: null, loading: false, error: '' }); return }
     setAuth(previous => ({ ...previous, loading: !previous.user, error: '' }))
     try {
       const user = await api('/me', token)
-      if (version === generation.current) setAuth({ token, user, loading: false, error: '' })
+      if (version === generation.current) { setCrisisToken(token); setAuth({ token, user, loading: false, error: '' }) }
     } catch (error) {
-      if (version === generation.current) setAuth({ token: '', user: null, loading: false, error: error.message })
+      if (version === generation.current) { setCrisisToken(''); setAuth({ token: '', user: null, loading: false, error: error.message }) }
       throw error
     }
   }, [])

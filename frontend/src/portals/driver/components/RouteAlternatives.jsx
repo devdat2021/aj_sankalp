@@ -8,6 +8,6 @@ export default function RouteAlternatives({ routes, activeId, selectedId, onSele
       <span className={route.conflicts.length ? 'route-risk' : 'route-clear'}>{route.conflicts.length ? `Intersects: ${route.conflicts.join(', ')}` : 'No simulated zone intersections'}</span>
       <small>{route.source}</small>
     </button>)}</div>
-    <div className="route-footer"><p>Zone checks apply only to this demo. Road conditions and truck suitability are unverified.</p><button className="primary" disabled={!selected || selected.id === activeId || pending} onClick={() => onRequest(selected)}>{pending ? 'Awaiting simulated approval…' : 'Request rerouting'}<ArrowRight size={16}/></button></div>
+    <div className="route-footer"><p>Zone checks apply only to this demo. Road conditions and truck suitability are unverified.</p><button className="primary" disabled={!selected || selected.id === activeId || pending} onClick={() => onRequest(selected)}>{pending ? 'Awaiting logistics approval…' : 'Request rerouting'}<ArrowRight size={16}/></button></div>
   </section>
 }

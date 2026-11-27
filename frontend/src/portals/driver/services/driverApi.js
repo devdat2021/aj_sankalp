@@ -1,32 +1,27 @@
-import { initialAlerts, shipment } from '../data/mockData.js'
-// Session-only demo store. Replace these async functions with FastAPI calls.
-const delay = (ms = 450) => new Promise(resolve => setTimeout(resolve, ms))
-let alerts = initialAlerts.map(alert => ({ ...alert, acknowledged: false }))
-const incidents = []
-export const driverApi = {
-  async getShipment() { await delay(); return structuredClone(shipment) },
-  async getAlerts() { await delay(); return structuredClone(alerts) },
-  async acknowledgeAlert(id) {
-    await delay(); alerts = alerts.map(alert => alert.id === id ? { ...alert, acknowledged: true } : alert)
-    return structuredClone(alerts)
-  },
-  async reportIncident(input) {
-    await delay()
-    if (!input.description?.trim() || !input.location?.trim()) throw new Error('Description and location are required.')
-    const incident = { ...input, id: `DEMO-${crypto.randomUUID().slice(0, 8)}`, timestamp: new Date().toISOString(), simulated: true }
-    incidents.push(incident)
-    return structuredClone(incident)
-  },
-  async sendDistress(location) {
-    return this.reportIncident({ type: 'Distress signal', severity: 'critical', description: 'Demo SOS intended for Port Authority. No emergency service contacted.', location })
-  },
-  async requestReroute(route) {
-    await delay(2200)
-    const approved = route.conflicts.length === 0
-    const response = { id: crypto.randomUUID(), severity: approved ? 'info' : 'warning', category: 'Authority · simulated',
-      title: approved ? 'Rerouting approved · simulation' : 'Rerouting declined · simulation',
-      message: approved ? `${route.name} approved for this demo. No simulated zones intersect its geometry. Real conditions and truck restrictions are unverified.` : `${route.name} intersects a simulated disruption zone. Choose another route.`, acknowledged: false }
-    alerts = [response, ...alerts]
-    return { approved, alert: structuredClone(response) }
-  },
+import { api } from '../../../services/api.js'
+
+const categories = { 'Vehicle breakdown': 'breakdown', Flooding: 'flood', 'Road obstruction': 'obstruction', 'Refrigeration failure': 'refrigeration', 'Other issue': 'breakdown', 'Distress signal': 'distress' }
+export function createDriverApi(token) {
+  return {
+    getDashboard: () => api('/driver/dashboard', token),
+    acknowledgeAlert: id => api(`/alerts/${id}/read`, token, 'PATCH'),
+    async reportIncident(input, shipment) {
+      const coordinates = input.location.split(',').map(Number)
+      if (coordinates.length !== 2 || !coordinates.every(Number.isFinite)) throw new Error('Enter latitude, longitude as two numbers.')
+      const row = await api('/incidents', token, 'POST', { shipment_id: shipment.id, category: categories[input.type] || input.type, severity: { info: 'low', warning: 'medium', critical: 'high' }[input.severity] || input.severity, description: input.description, lat: coordinates[0], lng: coordinates[1] })
+      return { ...row, type: input.type, timestamp: row.created_at }
+    },
+    sendDistress(location, shipment) {
+      return this.reportIncident({ type: 'Distress signal', severity: 'critical', description: 'Driver requests urgent assistance. Internal notification; no emergency service contacted.', location }, shipment)
+    },
+    requestReroute(route, shipment, active) {
+      return api('/route-requests', token, 'POST', { shipment_id: shipment.id, reason: `Driver requests ${route.name}; ${route.conflicts.length ? route.conflicts.join(', ') : 'alternative route for logistics review'}`, options: [{ id: crypto.randomUUID(), name: route.name, delay_hours: Math.max(0, (route.duration - (active?.duration || 0)) / 3600), cost: 0, risk: route.conflicts.length ? 75 : 25, simulated: true, points: route.points, distance: route.distance, duration: route.duration, source: route.source }] })
+    },
+  }
+}
+
+export function driverShipment(row, data, user) {
+  const truck = data.vehicles.find(v => v.id === row.truck_id)
+  const coastalDemo = /udupi/i.test(row.destination)
+  return { ...row, origin: row.origin || data.port.name, weight: `${row.quantity} tonnes`, refrigerated: row.requires_cold, pickup: [data.port.lat, data.port.lng], location: truck ? [truck.lat, truck.lng] : [data.port.lat, data.port.lng], dropoff: row.destination_location || (coastalDemo ? [13.3409, 74.751] : null), driver: user.name, vehicle: truck?.name || row.truck_id, status: row.status.replaceAll('_', ' ') }
 }

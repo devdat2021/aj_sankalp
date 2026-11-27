@@ -32,6 +32,18 @@ class Option(Input):
     cost: float = Field(default=0, ge=0)
     risk: float = Field(default=0, ge=0, le=100)
     simulated: Literal[True] = True
+    # Optional road geometry lets approved driver proposals survive refreshes.
+    points: list[tuple[float, float]] | None = Field(default=None, min_length=2, max_length=20000)
+    distance: float | None = Field(default=None, ge=0)
+    duration: float | None = Field(default=None, ge=0)
+    source: str | None = Field(default=None, max_length=200)
+
+    @field_validator('points')
+    @classmethod
+    def coordinates(cls, points):
+        if points and any(not (-90 <= lat <= 90 and -180 <= lng <= 180) for lat, lng in points):
+            raise ValueError('Invalid route coordinates')
+        return points
 
 class Assignment(Input):
     truck_id: str

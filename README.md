@@ -1,43 +1,53 @@
 # CoastWatch — unified application
 
-Backend workflow updated to four roles: Port Operations, logistics company, driver, and captain. See [backend contracts and setup](backend/README.md). Logistics now owns road reroute approvals; ports own handling, access, and docking. All four frontend role workspaces now use these APIs. See [frontend setup](frontend/README.md) for Supabase configuration.
+One React/Vite frontend (`frontend/`) and one FastAPI backend (`backend/`). The incoming port authority dashboard, Fleet Cockpit and crisis simulation interfaces share the local authentication and four-role operational workflows. Logistics and captain workspaces retain their existing functionality.
 
+## Run locally (PowerShell)
 
-One frontend (`frontend/`) and one FastAPI backend (`backend/`).
+From `D:/Aj1` (create `.venv` with `python -m venv .venv` if absent):
 
-## Start
-
-Backend, from `C:/AJET/CoastalWatch/backend`:
 ```powershell
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
+cd backend
+../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 ```
-Frontend, in another terminal from `C:/AJET/CoastalWatch/frontend`:
+
+In another terminal:
+
 ```powershell
+cd D:/Aj1/frontend
 npm ci
 npm run dev
 ```
-Open http://127.0.0.1:5173. Choose Logistics, Port Operations, Truck Operator or Vessel Operator on the home page. Local demo access is available until Supabase is configured. `/api` proxies to the backend on port 8001.
 
-## MongoDB
+Open http://127.0.0.1:5173; API documentation is at http://127.0.0.1:8001/docs. Copy environment examples only if the corresponding configuration file does not already exist. Preserve existing credentials. Vite proxies `/api` to port 8001. Choose a demo role on the home page and sign out to switch roles. Demo entry requires backend `DEMO_MODE=true` and no frontend Supabase configuration.
 
-Use the Atlas `coastwatch-cluster` in the `CoastWatch-SCM` project. Set `MONGODB_URI` to its authenticated connection URI in `backend/.env`, with `MONGODB_DB=coastwatch`, and allow the backend machine's IP in Atlas network access. Use an application database user with `readWrite` access to `coastwatch`. Credentials must remain outside source control; `backend/.env` is ignored by Git and is loaded independently of the working directory.
+## Storage and authentication
 
-From `backend/`, run `python -m app.database.check_connection` to verify a real MongoDB ping and application collection read without modifying data. The check exits unsuccessfully when MongoDB is unconfigured or unreachable. `/api/health` also checks application storage access, initializing demo state if the database is empty. An empty URI still uses local JSON in demo mode and does not establish an Atlas connection.
+- Operational consignments, capacity, requests, incidents and notifications retain the existing MongoDB Atlas integration (`MONGODB_URI`, `MONGODB_DB`). An empty URI uses local JSON in demo mode. Demo actions use the configured database; they are not automatically isolated.
+- Crisis simulations use a separate SQLAlchemy store, defaulting to `backend/data/crisis.db`. Startup creates its tables and seeds a synthetic logistics network if empty. Optional `CRISIS_DATABASE_URL` overrides this store. Simulation scenarios and history persist here; simulation does not change operational assignments or capacity in MongoDB.
+- Supabase remains the shared authentication provider when configured. Roles and asset/company permissions are resolved by FastAPI, not the browser. See [backend setup](backend/README.md) and [frontend setup](frontend/README.md). Live Supabase login must be verified once credentials/accounts are configured.
+- `.env` files, runtime JSON/SQLite data and Python caches are ignored. Existing runtime data files are retained locally, not versioned.
 
-Demo mode uses local JSON when the URI is empty. Before production, disable `DEMO_MODE` and configure Supabase authentication and trusted user mappings (see `backend/README.md`). Optional frontend environment variables are in `frontend/.env.example`.
+From `backend/`, `../.venv/Scripts/python.exe -m app.database.check_connection` performs a read-only MongoDB ping and application collection read. It fails when Atlas is unconfigured or unreachable. Set `DEMO_MODE=false` for production and configure trusted user mappings.
 
-## Branch consolidation
+## Verify the integration
 
-Fetched all branches on 2026-11-27. Madhuresh and mk both point to `7e13d15`; main at `45bb8d4` includes them; feature/port-authority-portal at `c3eae11` includes main. All are ancestors of the local `consolidate/unified-app` branch. Both portals now use one frontend build, with scoped port styles and navigation. The backend has moved to the root.
+```powershell
+# From backend/
+../.venv/Scripts/python.exe -m pytest -q
+# From frontend/
+node --test tests/api.test.js tests/driverApi.test.js
+npm run lint
+npm run build
+```
 
-Duplicate port folders were moved to `C:/Users/Alfaz/CoastalWatch-backup-20261127` for recovery. The sibling port source matched the repository copy. `C:/AJET/bob-ai-hackathon-y2ms` was not modified.
+1. Enter Port Operations. Review Requests, Cargo, capacity, incidents and Weather. Open Crisis Simulator, run a disruption and check results, History, What-if comparison and Network overview.
+2. Enter the truck operator demo. Load road alternatives and submit a reroute request. Sign out and enter logistics to approve it. Return to the driver: the approved route and geometry persist, including after reload. Report an incident and verify it in port operations.
+3. Logistics creates/assigns cargo and requests handling/access. Port Operations approves these and docking requests. Captains record vessel movements; logistics receives linked cargo notifications. Existing pickup/delivery and warning acknowledgment remain available.
 
-## Feature boundaries
+Crisis estimates and road hazard overlays use synthetic data. Road previews use OSRM with a labeled demonstration fallback and require logistics approval. Positions are seeded or manually reported; maps/weather need internet. SOS creates an internal incident, not an emergency call. Optional LLM explanations are disabled by default (`LLM_PROVIDER=none`); deterministic explanations work without external keys or ML model files.
 
-All four portals share cargo, incidents, decisions and scoped alerts through FastAPI. Logistics approves road changes; ports approve access and docking. Maps and weather require internet. Positions are seeded or manually reported; no emergency service is contacted.
+## Integration verification
 
-## Checks
-
-Run `python -m pytest -q` in backend, and `npm run build` and `npm run lint` in frontend.
+The combined suite passes 44 backend tests and 7 frontend tests; lint, TypeScript checking and Vite build pass. A browser smoke test verified crisis execution/history and the shared port Requests view. Atlas ping/read passed separately. Tests use temporary storage. Non-blocking warnings remain for upstream Python deprecations and the large lazy-loaded crisis dashboard bundle.

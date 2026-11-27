@@ -8,3 +8,8 @@ body { margin: 0; }
 .portal-home { max-width:960px; margin:70px auto; padding:24px; font-family:'Segoe UI',sans-serif; color:#142f42; }
 .portal-links { display:flex; flex-wrap:wrap; gap:24px; margin:32px 0; }
 .portal-links a { flex:1; min-width:220px; padding:28px; border:1px solid #c9d5df; border-radius:12px; color:#087e8b; text-decoration:none; background:#f3f6f8; }
+
+.portal-links>article {flex:1;min-width:220px;padding:28px;border:1px solid #c9d5df;border-radius:12px;color:#142f42;background:#f3f6f8;}
+.portal-home button {padding:12px 16px;border:0;border-radius:7px;background:#087e8b;color:white;cursor:pointer;}
+.portal-home button:disabled {opacity:.5;cursor:wait;}
+.portal-nav {flex-wrap:wrap;}

@@ -114,3 +114,17 @@ def test_docking_requires_handling_approval_and_open_port(client):
 def test_timestamps_and_spoofed_reporter_rejected(client):
     assert client.post('/api/port-requests',headers=auth('logistics'),json=dict(shipment_id='SHP-101',kind='handling',requested_at='2026-12-01T10:00:00')).status_code==422
     assert client.post('/api/incidents',headers=auth('driver'),json=dict(shipment_id='SHP-101',category='flood',severity='high',description='Flood report',lat=12,lng=74,reporter_id='someone-else')).status_code==422
+
+def test_driver_geometry_persists_only_after_logistics_approval(client):
+    option = dict(id='ROAD-ALT',name='Inland alternative',delay_hours=1,points=[[13.0,74.8],[13.2,74.9]],distance=20000,duration=3600,source='OSRM road route')
+    response = client.post('/api/route-requests',headers=auth('driver'),json=dict(shipment_id='SHP-101',reason='Road blocked',options=[option]))
+    assert response.status_code==201
+    rid=response.json()['id']
+    assert not client.get('/api/shipments/SHP-101',headers=auth('driver')).json().get('route')
+    decision=dict(status='approved',option_id='ROAD-ALT',reason='Checked alternate route')
+    assert client.patch('/api/route-requests/'+rid,headers=auth('port'),json=decision).status_code==403
+    assert client.patch('/api/route-requests/'+rid,headers=auth('logistics'),json=decision).status_code==200
+    dashboard=client.get('/api/driver/dashboard',headers=auth('driver')).json()
+    assert dashboard['shipments'][0]['route']['points']==option['points']
+    option['points'][0][0]=200
+    assert client.post('/api/route-requests',headers=auth('driver'),json=dict(shipment_id='SHP-101',reason='Invalid geometry',options=[option])).status_code==422
