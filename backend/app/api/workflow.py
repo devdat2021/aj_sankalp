@@ -9,7 +9,7 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
 from app.services.port_service import find, audit, now
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
 
@@ -42,7 +42,10 @@ def dashboard(role: str,user=Depends(current_user)):
 
 @router.get('/shipments/{id}')
 def get_shipment(id: str,user=Depends(current_user)):
-    with transaction() as s: return shipment(s,user,id)
+    with transaction() as s:
+        sh = shipment(s,user,id)
+        sh['history'] = consignment_history(s,user,id)
+        return sh
 
 @router.post('/shipments',status_code=201)
 def create_shipment(body: Consignment,user=Depends(current_user)):

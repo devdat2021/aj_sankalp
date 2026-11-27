@@ -28,7 +28,39 @@ export default function Cargo({ data, user, mutate }) {
       {['driver', 'logistics'].includes(user.role) && sh.status !== 'delivered' && <details><summary>Request a route change</summary>{data.requests.some(r => r.shipment_id === sh.id && r.status === 'pending') ? <p>A route change is awaiting logistics approval. See Requests.</p> : <ActionForm label="Submit reroute request" submit={f => mutate('/route-requests', 'POST', { shipment_id: sh.id, reason: f.reason, options: [route(f)] })}><Field label="Reason for changing route" name="reason" minLength={3} /><Field label="Proposed route / instructions" name="route_name" /><Field label="Additional time (hours)" name="delay" type="number" min="0" step="any" value={0} /><Field label="Estimated additional cost (₹)" name="cost" type="number" min="0" value={0} /><Field label="Estimated risk index (0–100)" name="risk" type="number" min="0" max="100" value={0} /><p className="cw-muted">Your proposal becomes active only after logistics approval.</p></ActionForm>}</details>}
       {user.role === 'port' && ['at_port', 'unloaded'].includes(sh.status) && <ActionButton action={() => mutate(`/shipments/${sh.id}/events`, 'POST', { event: sh.status === 'at_port' ? 'unloaded' : 'ready_for_pickup' })}>{sh.status === 'at_port' ? 'Confirm cargo unloaded' : 'Mark ready for pickup'}</ActionButton>}
       {user.role === 'driver' && ['ready_for_pickup', 'in_transit'].includes(sh.status) && <ActionButton disabled={sh.status === 'ready_for_pickup' && !data.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access' && r.status === 'approved' && r.truck_id === sh.truck_id)} action={() => mutate(`/shipments/${sh.id}/events`, 'POST', { event: sh.status === 'ready_for_pickup' ? 'picked_up' : 'delivered' })}>{sh.status === 'ready_for_pickup' ? 'Confirm pickup (access approval required)' : 'Confirm delivery'}</ActionButton>}
-      <details><summary>Cargo history ({sh.events?.length || 0})</summary>{sh.events?.length ? <ol>{sh.events.map(e => <li key={e.id}>{e.event.replaceAll('_', ' ')} · {stamp(e.created_at)}</li>)}</ol> : <Empty>No movement events recorded.</Empty>}</details>
+      {/* Unified consignment history — sea / port / road */}
+      <details><summary>Consignment history ({sh.history?.length || 0})</summary>
+        {sh.history?.length ? (
+          <ol>
+            {sh.history.map(ev => {
+              const etype = ev.event.replaceAll('_', ' ').trim();
+              const ts = stamp(ev.created_at);
+              const actor = ev.actor ? ` · ${ev.actor}` : '';
+              const detail = ev.details && Object.keys(ev.details).length ? (
+                <div className="cw-muted tiny">{JSON.stringify(ev.details)}</div>
+              ) : null;
+              return <li key={ev.id}>{etype}{actor}{ts}{detail}</li>;
+            })}
+          </ol>
+        ) : (
+          <Empty>No movement events recorded.</Empty>
+        )}</details>
+
+      {/* Sea / port / road linkage summary */}
+      {sh.vessel_id || sh.route_id || sh.truck_id ? (
+        <div className="cw-card">
+          <div className="cw-row">
+            {sh.vessel_id && <span><strong>Vessel:</strong> {sh.vessel_id}</span>}
+            {sh.truck_id && <span><strong>Truck:</strong> {sh.truck_id} {sh.truck_driver ? `· Driver: ${sh.truck_driver}` : ''}</span>}
+            {sh.route_id && <span><strong>Route:</strong> {sh.route_id} {sh.route_name ? `· ${sh.route_name}` : ''}</span>}
+          </div>
+          {sh.port_id && <p><strong>Handling port:</strong> {sh.port_id}</p>}
+          {sh.origin && <p><strong>Origin:</strong> {sh.origin}</p>}
+          {sh.destination && <p><strong>Destination:</strong> {sh.destination}</p>}
+        </div>
+      ) : (
+        <p className="cw-muted">Not assigned: no vessel, truck, or route.</p>
+      )}
     </section>)}
   </div>
 }

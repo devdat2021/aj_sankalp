@@ -51,6 +51,114 @@ def notify(state, message, rows, severity='info', event_key=None):
 def pending(row):
     if row['status']!='pending': raise HTTPException(409, 'Request already decided')
 
+
+def _event_id_from(event):
+    """Preserve existing event ID when available, otherwise generate new one."""
+    return event.get('id') or str(uuid4())
+
+
+def _normalize_event(src, event_type, created_at, actor=None, details=None):
+    """Normalize diverse event sources into a consistent representation."""
+    base = {
+        'id': _event_id_from(src),
+        'event': event_type,
+        'created_at': created_at,
+    }
+    if actor is not None:
+        base['actor'] = actor
+    if details:
+        base['details'] = details
+    return base
+
+
+def consignment_history(state, user, sid):
+    """Return a unified, chronologically-sorted consignment journey history.
+
+    Collects from: shipment events[], related vessel events, port requests,
+    and route requests.  Company-scoped — never reveals another company's cargo.
+    """
+    from app.api.workflow import shipment as ship_func
+    sh = ship_func(state, user, sid)
+
+    # --- Normalization helpers ---
+
+    def make_event(payload, event_type, actor=None, details=None):
+        """Create a normalized event dict with id, event, created_at."""
+        return {
+            'id': payload.get('id') or str(uuid4()),
+            'event': event_type,
+            'created_at': payload.get('created_at', ''),
+            'actor': actor,
+            'details': details or {},
+        }
+
+    # --- 1. Shipment‑owned events (vessel + cargo events already in sh['events']) ---
+
+    events = []
+    for e in sh.get('events', []):
+        if not isinstance(e, dict): continue
+        et = e.get('event', '')
+        # Preserve the original created_at and id; never invent timestamps.
+        events.append(make_event(e, et, actor=e.get('actor')))
+
+    # --- 2. Port requests related to this shipment ---
+
+    ship_id = sh['id']
+    for pr in state.get('port_requests', []):
+        if pr.get('shipment_id') != ship_id: continue
+        # port request creation
+        events.append(make_event(
+            {'id': pr['id'], 'kind': pr.get('kind'), 'status': pr.get('status'),
+             'requested_at': pr.get('requested_at'), 'reviewed_at': pr.get('reviewed_at')},
+            event_type=f'port_{pr["kind"]}_{pr["status"]}',
+            actor=pr.get('requester_id'),
+            details={'kind': pr['kind'], 'status': pr['status'], 'slot': pr.get('slot'), 'reason': pr.get('reason')}
+        ))
+        # if approved, also record the decision timestamp
+        if pr['status'] == 'approved' and pr.get('reviewed_at'):
+            events.append(make_event(
+                {'id': pr['id'] + ':decision', 'kind': pr['kind'], 'status': 'approved', 'slot': pr.get('slot')},
+                event_type=f'port_{pr["kind"]}_approved',
+                actor=pr.get('reviewer_id'),
+                details={'kind': pr['kind'], 'slot': pr['slot'], 'reason': pr.get('reason')}
+            ))
+
+    # --- 3. Route requests related to this shipment ---
+
+    for rr in state.get('requests', []):
+        if rr.get('shipment_id') != ship_id: continue
+        # request creation
+        events.append(make_event(
+            {'id': rr['id'], 'reason': rr.get('reason'), 'status': rr.get('status'),
+             'created_at': rr.get('created_at'), 'reviewed_at': rr.get('reviewed_at')},
+            event_type=f'route_{rr["status"]}',
+            actor=rr.get('requester_id'),
+            details={'reason': rr.get('reason'), 'options': [o.get('name') for o in rr.get('options', [])]}
+        ))
+        # if decided, also record the decision
+        if rr['status'] in ('approved', 'rejected') and rr.get('reviewed_at'):
+            events.append(make_event(
+                {'id': rr['id'] + ':decision', 'status': rr['status'], 'option_id': rr.get('option_id'), 'reason': rr.get('reason')},
+                event_type='route_decision',
+                actor=rr.get('reviewer_id'),
+                details={'status': rr['status'], 'option_id': rr.get('option_id'), 'reason': rr.get('reason')}
+            ))
+
+    # --- 4. Sort chronologically by created_at, dedupe by id ---
+
+    # stable sort: earliest first; missing/empty timestamps sort last
+    events.sort(key=lambda e: e.get('created_at') or '9999-99-99T23:59:59Z')
+
+    seen = set()
+    uniq = []
+    for e in events:
+        eid = e.get('id')
+        if eid in seen: continue
+        seen.add(eid)
+        uniq.append(e)
+
+    return uniq
+
 def port(state, pid):
     if state['port']['id']!=pid: raise HTTPException(404, 'Port not found')
     return state['port']

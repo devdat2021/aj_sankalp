@@ -61,16 +61,69 @@ Event timestamps are UTC ISO strings. `created_at` currently means when the serv
 
 `Workspace.jsx` obtains `/api/logistics/dashboard` with the shared bearer token. Cargo, Requests, Operations/Tracking, notifications and the map consume its scoped arrays. Creation sends no company identity; the company-truck selector consumes `data.vehicles`. There is no client-side fetch of an unfiltered manifest. The backend projections preserve every field these components consume, so no UI changes are needed in Phase 1.
 
-## Proposed future contract — not implemented
+## Phase 2 — unified consignment history (implemented)
 
-- **Phase 2 / Person 3:** agree on `consignment_reference`, `voyage_id`, normalized `source_port_id` / `destination_port_id`, voyage membership and the rules for linking cargo to a voyage. Decide how a company proves a booking before using linkage to obtain vessel tracking. Do not use a vessel ID as a substitute for voyage identity.
-- **Phase 2 / all:** agree on a unified timeline envelope (recorded time vs occurrence time, actor, consignment, related request/assignment and event type). Preserve existing movement names; do not reinterpret approval as movement.
-- **Phase 3 / Person 1:** define what clearance means and whether `ready_for_pickup` certifies it or a separate clearance state is required. Agree on dispatch vs advance assignment rules. Existing arrival/unload/readiness transitions remain untouched.
-- **Phase 4 / Person 3:** agree on driver assignment ownership, truck capacity/availability and reassignment history before adding constraints or new fields.
-- **Phase 6 / Persons 1 and 3:** agree on separate absolute sea/road ETAs, delivery windows, ETA change source/time, rescheduling flags and alternative pickup-slot request states. A proposed slot must not overwrite an existing approval before the port decides.
+**Objective:** A logistics user opening one owned consignment should see its complete linked journey:
+  Consignment → vessel/voyage → handling port → assigned truck/driver → destination,
+  with a chronological history of recorded actions and movements, without exposing another company's cargo.
+
+**Unified event representation:** Events from multiple sources are normalized into a consistent format:
+  `{ id, event, created_at, actor?, details? }`
+  where `event` is one of: `consignment_created`, `truck_assigned`, `port_handling_approved`,
+  `port_truck_access_approved`, `route_approved`, `route_rejected`, `departed`, `arrived`,
+  `docked`, `unloaded`, `ready_for_pickup`, `picked_up`, `delivered`.
+  Timestamps are the server `created_at` when the event was recorded; original occurrence
+  times are preserved where supported (vessel event `eta_hours`, cargo event `eta_hours`).
+
+**History source collection:**
+  1. Shipment‑owned events (`sh['events']`) — vessel events (departed/arrived/docked) and
+     cargo events (unloaded/ready_for_pickup/picked_up/delivered), already appended by the
+   respective vessel/cargo event endpoints.
+  2. Port requests related to the shipment — creation (`port_handling_pending`,
+  `port_truck_access_pending`) and approval decisions (`port_handling_approved`,
+  `port_truck_access_approved`) with slot/reason details.
+  3. Route requests related to the shipment — creation (`route_pending`) and decisions
+   (`route_approved`, `route_rejected`) with option details.
+
+**Predictable sorting & deduplication:** All events are sorted by `created_at` (earliest first);
+  duplicate events (same `id`) are removed. Missing/empty timestamps sort last.
+
+**Never invent history for legacy records:** Consignments without recorded events display
+  “No movement events recorded.”  Original event IDs and timestamps are preserved when
+  available; no artificial actions or dates are introduced.
+
+**Approval ≠ movement:** Port approvals and route decisions are recorded as distinct event
+  types (`port_handling_approved`, `route_approved`) and are never reinterpreted as actual
+  cargo movements.
+
+**Company isolation:** The `visible()` check server‑controls access.  A logistics user sees
+  history only for consignments where `company_id` matches.  Shared-vessel events never
+  reveal another company’s consignment IDs or cargo.
+
+- **Phase 2 / Person 3:** agree on `consignment_reference`, `voyage_id`, normalized
+  `source_port_id` / `destination_port_id`, voyage membership and the rules for linking
+  cargo to a voyage. Decide how a company proves a booking before using linkage to obtain
+  vessel tracking. Do not use a vessel ID as a substitute for voyage identity.
+- **Phase 2 / all:** agree on a unified timeline envelope (recorded time vs occurrence time,
+  actor, consignment, related request/assignment and event type). Preserve existing movement
+  names; do not reinterpret approval as movement.
+- **Phase 3 / Person 1:** define what clearance means and whether `ready_for_pickup`
+  certifies it or a separate clearance state is required. Agree on dispatch vs advance
+  assignment rules. Existing arrival/unload/readiness transitions remain untouched.
+- **Phase 4 / Person 3:** agree on driver assignment ownership, truck capacity/availability
+  and reassignment history before adding constraints or new fields.
+- **Phase 6 / Persons 1 and 3:** agree on separate absolute sea/road ETAs, delivery windows,
+  ETA change source/time, rescheduling flags and alternative pickup-slot request states. A
+  proposed slot must not overwrite an existing approval before the port decides.
 
 These are coordination questions for later phases, not new API fields or promised functionality.
 
 ## Verification
 
-From `backend/` run `../.venv/Scripts/python.exe -m pytest -q`. `test_logistics_scope.py` uses temporary JSON storage, two companies on one vessel and a locally signed JWT with a mocked JWKS source. It checks scoped lists/details, nested vessel data, foreign writes without mutation, trusted mapping precedence, assignment ownership, private acknowledgments and preserved port/captain/driver access. It does not validate a live Supabase account or modify Atlas. Existing crisis tests separately verify that logistics cannot access the port-only synthetic simulation API.
+From `backend/` run `../.venv/Scripts/python.exe -m pytest -q`. `test_logistics_scope.py`
+uses temporary JSON storage, two companies on one vessel and a locally signed JWT with a
+mocked JWKS source. It checks scoped lists/details, nested vessel data, foreign writes
+without mutation, trusted mapping precedence, assignment ownership, private acknowledgments
+and preserved port/captain/driver access. It does not validate a live Supabase account or
+modify Atlas. Existing crisis tests separately verify that logistics cannot access the
+port-only synthetic simulation API.
