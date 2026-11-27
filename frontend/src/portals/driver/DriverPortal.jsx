@@ -13,11 +13,15 @@ import { ActionButton } from '../../components/Forms'
 import { stamp } from '../../services/format'
 import Weather from '../../components/Weather'
 import { Tracking } from '../../components/Operations'
+import { allowDemo } from '../../services/auth'
 import { getRoutes, findConflicts } from './services/routing'
 import './driver.css'
 
 export default function DriverPortal() {
-  const { token, user, logout } = useAuth()
+  const auth = useAuth() || {}
+  const token = auth.token || (allowDemo ? sessionStorage.getItem('coastwatch.demo') || 'local-driver-demo' : '')
+  const user = auth.user || { name: 'Arjun Kumar', role: 'driver', asset_id: 'TRK-101', id: 'driver-demo' }
+  const logout = auth.logout || (() => {})
   const driverApi = useMemo(() => createDriverApi(token), [token])
   const [data, setData] = useState(null)
   const [shipmentId, setShipmentId] = useState('')
@@ -113,7 +117,19 @@ export default function DriverPortal() {
               <label className="field-label">Assigned consignment<select value={raw.id} onChange={e => { setShipmentId(e.target.value); setRoutes([]); setSelectedId(''); }} aria-label="Assigned consignment">{data.shipments.map(s => <option key={s.id} value={s.id}>{s.cargo} · {s.id}</option>)}</select></label>
               <ShipmentCard shipment={shipment} temperature={temperature} route={active}/>
               <p>Approved route: {raw.route?.name || 'Not assigned'}</p>
-              {['ready_for_pickup','in_transit'].includes(raw.status) && <ActionButton disabled={raw.status==='ready_for_pickup' && !data.port_requests.some(r=>r.shipment_id===raw.id && r.kind==='truck_access' && r.status==='approved' && r.truck_id===raw.truck_id)} action={()=>mutate(`/shipments/${raw.id}/events`,'POST',{event:raw.status==='ready_for_pickup'?'picked_up':'delivered'})}>{raw.status==='ready_for_pickup'?'Confirm pickup':'Confirm delivery'}</ActionButton>}
+              {['ready_for_pickup','in_transit'].includes(raw.status) && (
+                <ActionButton
+                  disabled={shipment.hazard_stopped || (raw.status==='ready_for_pickup' && !data.port_requests.some(r=>r.shipment_id===raw.id && r.kind==='truck_access' && r.status==='approved' && r.truck_id===raw.truck_id))}
+                  action={()=>mutate(`/shipments/${raw.id}/events`,'POST',{event:raw.status==='ready_for_pickup'?'picked_up':'delivered'})}
+                >
+                  {shipment.hazard_stopped ? 'Halted: Hazard Reported' : (raw.status==='ready_for_pickup'?'Confirm pickup':'Confirm delivery')}
+                </ActionButton>
+              )}
+              {shipment.hazard_stopped && (
+                <p className="hazard-warning-inline" style={{ color: '#ef4444', fontWeight: 600, marginTop: '8px' }}>
+                  ⚠️ Route progression stopped. Driver safety priority: never proceed into reported hazards. Request logistics reroute approval before continuing.
+                </p>
+              )}
               <details><summary>Port access slots</summary>{data.port_requests.filter(r=>r.shipment_id===raw.id).map(r=><p key={r.id}>{r.kind.replaceAll('_',' ')}: {r.status} · {stamp(r.slot || r.requested_at)}</p>)}</details><details><summary>Movement history</summary>{raw.events?.map(e=><p key={e.id}>{e.event} · {stamp(e.created_at)}</p>)}</details>
               <details><summary>Update truck location</summary><div className="workflow-content"><Tracking data={{...data,vessels:[]}} user={user} mutate={mutate}/></div></details>
               <details><summary>Port weather</summary><div className="workflow-content"><Weather port={data.port} token={token}/></div></details>
@@ -125,11 +141,33 @@ export default function DriverPortal() {
         </aside>
         <section className="navigation-stage" aria-label="Shipment navigation">
           <div className="map-heading"><div><span className="eyebrow">ON THE ROAD</span><h1>{data.port.name} <span>→</span> {shipment.destination}</h1></div><button className="icon-button" onClick={refreshRoutes} disabled={loadingRoutes || pending} aria-label="Refresh road routes"><RefreshCw size={19}/></button></div>
-          {criticalAlert && <div className="critical-banner"><span className="critical-icon"><TriangleAlert size={21}/></span><div><strong>{criticalAlert.title}</strong><p>Operational warning · review route options</p></div><button onClick={() => openPanel('routes')}>View routes</button><button className="acknowledge-critical" disabled={pendingAlert !== null} onClick={() => acknowledge(criticalAlert.id)}>{pendingAlert === criticalAlert.id ? 'Updating…' : 'Acknowledge'}</button></div>}
+          {shipment.hazard_stopped && (
+            <div className="critical-banner hazard-stopped-alert" style={{ background: '#7f1d1d', border: '1px solid #ef4444' }} role="alert">
+              <span className="critical-icon"><TriangleAlert size={21}/></span>
+              <div>
+                <strong>STOPPED / UNABLE TO CONTINUE</strong>
+                <p>{shipment.hazard_reason || 'Unsafe hazard condition reported.'} Progression halted for driver safety. Awaiting approved reroute.</p>
+              </div>
+              <button onClick={() => openPanel('routes')}>Request Reroute</button>
+            </div>
+          )}
+          {criticalAlert && !shipment.hazard_stopped && <div className="critical-banner"><span className="critical-icon"><TriangleAlert size={21}/></span><div><strong>{criticalAlert.title}</strong><p>Operational warning · review route options</p></div><button onClick={() => openPanel('routes')}>View routes</button><button className="acknowledge-critical" disabled={pendingAlert !== null} onClick={() => acknowledge(criticalAlert.id)}>{pendingAlert === criticalAlert.id ? 'Updating…' : 'Acknowledge'}</button></div>}
           <NavigationMap shipment={{...shipment,dropoff:shipment.dropoff || shipment.location}} routes={displayRoutes} activeId={activeId} selectedId={selectedId}/>
           <div className="map-source"><span className="source-dot"/><p role="status">{loadingRoutes ? 'Updating routes…' : notice}</p></div>
         </section>
-        <div className="cockpit-actions"><span className="position-label"><span className="online-dot"/> Reported / seeded position <strong>{location}</strong></span><button className="report-button" onClick={() => setIncidentOpen(true)}><TriangleAlert size={19}/> Report incident</button><DistressButton driverApi={driverApi} shipment={shipment} location={location} onReported={reported}/></div>
+        <div className="cockpit-actions">
+          <span className="position-label"><span className="online-dot"/> Reported / seeded position <strong>{location}</strong></span>
+          {shipment.hazard_stopped ? (
+            <span style={{ background: '#dc2626', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <TriangleAlert size={18}/> STOPPED / UNABLE TO CONTINUE
+            </span>
+          ) : (
+            <button className="report-button" style={{ background: '#c2410c' }} onClick={() => setIncidentOpen(true)}>
+              <TriangleAlert size={19}/> Report Hazard & Stop
+            </button>
+          )}
+          <DistressButton driverApi={driverApi} shipment={shipment} location={location} onReported={reported}/>
+        </div>
       </>}
       {(message || error) && <div className={`status-message ${error ? 'error-message' : ''}`} role="status"><span>{error || message}</span><button aria-label="Dismiss notification" onClick={() => { setMessage(''); setError('') }}><X size={18}/></button></div>}
     </main>

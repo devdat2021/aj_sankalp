@@ -92,3 +92,7 @@ class Warning(Input):
     message: str = Field(min_length=3, max_length=1000)
     severity: Literal['info', 'warning', 'critical'] = 'warning'
     shipment_ids: list[str] = Field(default_factory=list)
+
+class EtaUpdate(Input):
+    eta_hours: float = Field(ge=0)
+

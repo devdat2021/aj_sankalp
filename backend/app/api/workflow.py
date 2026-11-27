@@ -7,7 +7,7 @@ from app.database.connection import transaction
 from app.schemas.port import Review, Decision, Scenario, Incident
 from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
-    DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
+    DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning, EtaUpdate)
 from app.services.port_service import find, audit, now
 from app.services.workflow import require, visible, shipment, notify, pending, port, vessel
 from app.intelligence.simulation.engine import simulate
@@ -74,14 +74,40 @@ def report(body: Incident,user=Depends(current_user)):
     with transaction() as s:
         sh=shipment(s,user,body.shipment_id)
         row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],reporter_id=user['id'],status='reported',created_at=now())
-        s['incidents'].insert(0,row); notify(s,'New '+body.category+' report',[sh],'critical' if body.category=='distress' else 'warning',row['id']); return row
+        s['incidents'].insert(0,row)
+        hazard_categories={'flood','storm','roadblock','obstruction','breakdown','refrigeration','distress','adverse_seas','vessel_issue'}
+        if body.category in hazard_categories:
+            sh['hazard_stopped']=True
+            sh['hazard_reason']=f"{body.category}: {body.description}"
+            truck_id=user.get('asset_id') or sh.get('truck_id')
+            if truck_id:
+                v=next((veh for veh in s['vehicles'] if veh['id']==truck_id),None)
+                if v:
+                    v['status']='Stopped / Unable to continue'
+                    v['hazard_stopped']=True
+                    v['hazard_reason']=f"{body.category}: {body.description}"
+        notify(s,'New '+body.category+' report',[sh],'critical' if body.category in {'distress','breakdown','flood','roadblock','refrigeration'} else 'warning',row['id'])
+        return row
 
 @router.patch('/incidents/{id}')
 def review(id: str,body: Review,user=Depends(authority)):
     with transaction() as s:
-        row=find(s,'incidents',id); shipment(s,user,row['shipment_id'])
+        row=find(s,'incidents',id); sh=shipment(s,user,row['shipment_id'])
         if body.status not in {'reported':['confirmed','rejected'],'confirmed':['resolved']}.get(row['status'],[]): raise HTTPException(409,'Invalid incident transition')
-        row['status']=body.status; audit(s,user,body.status,id); return row
+        row['status']=body.status; audit(s,user,body.status,id)
+        if body.status in {'resolved','rejected'}:
+            active=[inc for inc in s['incidents'] if inc['shipment_id']==row['shipment_id'] and inc['id']!=id and inc['status'] in {'reported','confirmed'}]
+            if not active:
+                sh['hazard_stopped']=False
+                sh['hazard_reason']=None
+                truck_id=sh.get('truck_id')
+                if truck_id:
+                    v=next((veh for veh in s['vehicles'] if veh['id']==truck_id),None)
+                    if v and v.get('status')=='Stopped / Unable to continue':
+                        v['status']='In transit' if sh.get('status')=='in_transit' else 'Awaiting pickup'
+                        v['hazard_stopped']=False
+                        v['hazard_reason']=None
+        return row
 
 @router.get('/route-requests')
 def requests(user=Depends(current_user)):
@@ -109,6 +135,15 @@ def decide(id: str,body: Decision,user=Depends(current_user)):
             option=next((o for o in row['options'] if o['id']==body.option_id),None)
             if option is None: raise HTTPException(422,'Choose a valid option')
             sh.update(route_id=option['id'],route=option); sh['eta_hours']+=option['delay_hours']
+            sh['hazard_stopped']=False
+            sh['hazard_reason']=None
+            truck_id=sh.get('truck_id')
+            if truck_id:
+                v=next((veh for veh in s['vehicles'] if veh['id']==truck_id),None)
+                if v and v.get('status')=='Stopped / Unable to continue':
+                    v['status']='In transit' if sh.get('status')=='in_transit' else 'Awaiting pickup'
+                    v['hazard_stopped']=False
+                    v['hazard_reason']=None
         row.update(body.model_dump()); row.update(reviewer=user['id'],reviewed_at=now())
         notify(s,f"{sh['id']}: reroute {body.status}. {body.reason}",[sh],event_key=id+':decision'); audit(s,user,body.status,id); return row
 
@@ -256,8 +291,24 @@ def vessel_event(id: str,body: Milestone,user=Depends(current_user)):
             sh['status']={'departed':'at_sea','arrived':'arrived','docked':'at_port'}[body.event]
             if body.eta_hours is not None: sh['eta_hours']=body.eta_hours
             sh['events'].append(event)
-            notify(s,f"Consignment {sh['id']}: vessel {body.event}; ETA {sh['eta_hours']} hours",[sh],event_key=event['id']+sh['id'])
+            if body.event == 'departed':
+                msg = f"Consignment {sh['id']} departed; estimated arrival in {sh['eta_hours']} hours"
+            else:
+                msg = f"Consignment {sh['id']}: vessel {body.event}; ETA {sh['eta_hours']} hours"
+            notify(s,msg,[sh],event_key=event['id']+sh['id'])
         audit(s,user,body.event,id); return event
+
+@router.patch('/vessels/{id}/eta')
+def update_vessel_eta(id: str,body: EtaUpdate,user=Depends(current_user)):
+    require(user,'captain')
+    with transaction() as s:
+        v=vessel(s,user,id)
+        v['eta_hours']=body.eta_hours
+        cargo=[r for r in s['shipments'] if r.get('vessel_id')==id and r['status'] in {'planned','at_sea','arrived','at_port'}]
+        for sh in cargo:
+            sh['eta_hours']=body.eta_hours
+            notify(s,f"Consignment {sh['id']}: vessel ETA updated to {body.eta_hours} hours",[sh])
+        audit(s,user,'eta_updated',id); return v
 
 @router.post('/shipments/{id}/events')
 def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
@@ -268,6 +319,8 @@ def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
     with transaction() as s:
         sh=shipment(s,user,id); before,after=transitions[body.event]
         if sh['status']!=before: raise HTTPException(409,'Invalid cargo transition')
+        if body.event=='delivered' and sh.get('hazard_stopped'):
+            raise HTTPException(409,'Cannot complete delivery while vehicle is stopped due to reported hazard; obtain approved reroute or resolve hazard first')
         if body.event=='picked_up':
             if not any(r['shipment_id']==id and r['kind']=='truck_access' and r['status']=='approved' and r.get('truck_id')==sh.get('truck_id') for r in s['port_requests']): raise HTTPException(409,'Truck access approval required')
             if sh.get('cold_reserved'):
