@@ -22,9 +22,12 @@ export default function RouteAlternatives({ routes, activeId, selectedId, onSele
     {!routes.length && !loadingRoutes && <p className="cw-empty">No alternative routes available.</p>}
     <div className="route-grid">{routes.map(route => {
       const blocked = Boolean(route.conflicts?.length)
+      const risk = route.risk == null ? null : Math.max(0, Math.min(1, route.risk > 1 ? route.risk / 100 : route.risk))
+      const band = blocked ? 'high' : risk == null ? 'unknown' : risk < 0.34 ? 'low' : risk < 0.67 ? 'medium' : 'high'
       return (
         <button
           key={route.id}
+          data-risk={band}
           className={`route-option ${selectedId === route.id ? 'selected' : ''} ${blocked ? 'route-blocked' : ''}`}
           aria-pressed={selectedId === route.id}
           onClick={() => onSelect(route.id)}

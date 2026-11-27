@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.security import current_user, authority
+from app.core.security import current_user, authority, workflow_identity
 from app.core.config import settings
 from app.database.connection import transaction
 from app.schemas.port import Review, Decision, Scenario, Incident
@@ -10,6 +10,9 @@ from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortReq
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning, EtaUpdate)
 from app.services.port_service import find, audit, now, evaluate_docking_request, enrich_docking_requests, get_vessel_cargo
 from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes, slot_conflict, request_slot_revision, route_hazard_conflicts, active_road_hazards
+from fastapi import Request, Response
+from pydantic import BaseModel, SecretStr
+from app.services import work_access as work
 from copy import deepcopy
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
@@ -25,11 +28,50 @@ def health():
 @router.get('/me')
 def me(user=Depends(current_user)): return user
 
-@router.get('/{role}/dashboard')
-def dashboard(role: str,user=Depends(current_user)):
-    if role not in {'port','logistics','driver','captain'}: raise HTTPException(404,'Unknown portal')
-    require(user,role)
+class WorkExchange(BaseModel):
+    token: SecretStr
+
+
+@router.post('/driver/work/exchange')
+def exchange_work(body: WorkExchange, request: Request, response: Response):
+    work.protect(request, 30)
+    token = body.token.get_secret_value()
+    if len(token) != 43:
+        raise work.denied()
+    response.headers['Cache-Control'] = 'no-store'
     with transaction() as s:
+        return work.exchange(s, token)
+
+
+@router.post('/shipments/{id}/driver-access')
+def manage_work(id: str, action: Literal['issue','revoke'], request: Request, response: Response, user=Depends(current_user)):
+    require(user, 'logistics')
+    work.protect(request, 120)
+    response.headers['Cache-Control'] = 'no-store'
+    with transaction() as s:
+        sh = shipment(s, user, id)
+        if action == 'revoke':
+            work.revoke(s, id)
+            return {'revoked': True}
+        return {'work_token': work.issue(s, sh)}
+
+
+@router.get('/{role}/dashboard')
+def dashboard(role: str, response: Response, identity=Depends(workflow_identity)):
+    if role not in {'port','logistics','driver','captain'}: raise HTTPException(404,'Unknown portal')
+    with transaction() as s:
+        user = work.resolve(s, identity)
+        require(user, role)
+        if user.get('work_shipment'):
+            response.headers['Cache-Control'] = 'no-store'
+            sid = user['work_shipment']
+            row = shipment(s, user, sid)
+            truck = find(s, 'vehicles', user['asset_id'])
+            return dict(shipments=[row], port={k:s['port'][k] for k in ('id','name','lat','lng')},
+                vehicles=[{k:truck[k] for k in ('id','name','lat','lng','status','last_seen') if k in truck}],
+                requests=[r for r in s['requests'] if r['shipment_id']==sid],
+                incidents=[r for r in s['incidents'] if r['shipment_id']==sid],
+                port_requests=[r for r in s['port_requests'] if r['shipment_id']==sid], alerts=[])
         rows=[r | {'history': consignment_history(s,user,r['id']), 'eligibility': eligibility(s,user,r['id'])} for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
         by_id={r['id']:r for r in rows}
         result=dict(user_id=user['id'],shipments=rows,port=s['port'],simulated=settings.demo_mode,
@@ -40,6 +82,9 @@ def dashboard(role: str,user=Depends(current_user)):
             alerts=[alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
             docking_requests=enrich_docking_requests(s, [r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))]))
+        if role == 'logistics':
+            result['users'] = [dict(id=u['id'], name=u.get('name') or u['id']) for u in s['users']
+                               if u.get('company_id') == user['company_id'] and u['role'] == 'driver' and u['active']]
         if role=='port': result['audit']=s['audit']
         return result
 
@@ -111,7 +156,7 @@ def create_shipment(body: Consignment,user=Depends(current_user)):
         s['shipments'].append(row); audit(s,user,'consignment_created',row['id']); return row
 
 @router.put('/shipments/{id}/assignment')
-def assign(id: str,body: Assignment,user=Depends(current_user)):
+def assign(id: str,body: Assignment,request: Request,response: Response,user=Depends(current_user)):
     require(user,'logistics')
     with transaction() as s:
         ok, reason = assign_eligible(s,user,id)
@@ -134,7 +179,12 @@ def assign(id: str,body: Assignment,user=Depends(current_user)):
         for pr in s.get('port_requests', []):
             if pr.get('shipment_id') == id and pr.get('kind') == 'truck_access' and pr.get('status') == 'approved' and pr.get('truck_id') != truck['id']:
                 pr['status'] = 'revoked'
-        notify(s,'Truck and route assigned: '+id,[row]); return row
+        notify(s,'Truck and route assigned: '+id,[row])
+        if work.assignment_driver(s, row):
+            work.protect(request, 120)
+            response.headers['Cache-Control'] = 'no-store'
+            return dict(row, work_token=work.issue(s, row))
+        return row
 
 @router.get('/incidents')
 def incidents(user=Depends(current_user)):
@@ -143,8 +193,9 @@ def incidents(user=Depends(current_user)):
         return [r for r in s['incidents'] if r['shipment_id'] in ids]
 
 @router.post('/incidents',status_code=201)
-def report(body: Incident,user=Depends(current_user)):
+def report(body: Incident,identity=Depends(workflow_identity)):
     with transaction() as s:
+        user = work.resolve(s, identity)
         sh=shipment(s,user,body.shipment_id)
         row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],reporter_id=user['id'],status='reported',created_at=now())
         s['incidents'].insert(0,row)
@@ -170,8 +221,8 @@ def review(id: str,body: Review,user=Depends(authority)):
         row=find(s,'incidents',id); sh=shipment(s,user,row['shipment_id'])
         if body.status not in {'reported':['confirmed','rejected'],'confirmed':['resolved']}.get(row['status'],[]): raise HTTPException(409,'Invalid incident transition')
         row['status']=body.status; audit(s,user,body.status,id)
-        if body.status in {'resolved','rejected'}:
-            active=[inc for inc in s['incidents'] if inc['shipment_id']==row['shipment_id'] and inc['id']!=id and inc['status'] in {'reported','confirmed'}]
+        if row['category'] != 'delay' and body.status in {'resolved','rejected'}:
+            active=[inc for inc in s['incidents'] if inc['shipment_id']==row['shipment_id'] and inc['id']!=id and inc['category']!='delay' and inc['status'] in {'reported','confirmed'}]
             if not active:
                 sh['hazard_stopped']=False
                 sh['hazard_reason']=None
@@ -191,9 +242,10 @@ def requests(user=Depends(current_user)):
         return [route_request_view(r,rows[r['shipment_id']],s) for r in s['requests'] if r['shipment_id'] in rows]
 
 @router.post('/route-requests',status_code=201)
-def request_route(body: RouteRequest,user=Depends(current_user)):
-    require(user,'driver','logistics')
+def request_route(body: RouteRequest,identity=Depends(workflow_identity)):
     with transaction() as s:
+        user = work.resolve(s, identity)
+        require(user,'driver','logistics')
         sh=shipment(s,user,body.shipment_id)
         if sh['status']=='delivered': raise HTTPException(409,'Consignment delivered')
         if len({o.id for o in body.options})!=len(body.options): raise HTTPException(422,'Option IDs must be unique')
@@ -332,10 +384,11 @@ def read_alert(id: str,user=Depends(current_user)):
         return alert_view(user,row)
 
 @router.post('/tracking/location')
-def tracking(body: Position,user=Depends(current_user)):
-    require(user,'driver','captain'); observed=body.observed_at
-    if observed.tzinfo is None or observed>datetime.now(timezone.utc): raise HTTPException(422,'Use a non-future timezone-aware observation')
+def tracking(body: Position,identity=Depends(workflow_identity)):
     with transaction() as s:
+        user = work.resolve(s, identity)
+        require(user,'driver','captain'); observed=body.observed_at
+        if observed.tzinfo is None or observed>datetime.now(timezone.utc): raise HTTPException(422,'Use a non-future timezone-aware observation')
         row=find(s,'vehicles' if user['role']=='driver' else 'vessels',user['asset_id'])
         owner='driver_id' if user['role']=='driver' else 'captain_id'
         if row.get(owner)!=user['id'] and not user.get('is_admin'): raise HTTPException(404,'Asset not found')
@@ -453,12 +506,13 @@ def update_vessel_eta(id: str,body: EtaUpdate,user=Depends(current_user)):
         return v
 
 @router.post('/shipments/{id}/events')
-def cargo_event(id: str,body: Milestone,user=Depends(current_user)):
-    roles={'unloaded':'port','ready_for_pickup':'port','picked_up':'driver','delivered':'driver'}
-    if body.event not in roles: raise HTTPException(422,'Use vessel events for sea movements')
-    require(user,roles[body.event])
-    transitions={'unloaded':('at_port','unloaded'),'ready_for_pickup':('unloaded','ready_for_pickup'),'picked_up':('ready_for_pickup','in_transit'),'delivered':('in_transit','delivered')}
+def cargo_event(id: str,body: Milestone,identity=Depends(workflow_identity)):
     with transaction() as s:
+        user = work.resolve(s, identity)
+        roles={'unloaded':'port','ready_for_pickup':'port','picked_up':'driver','delivered':'driver'}
+        if body.event not in roles: raise HTTPException(422,'Use vessel events for sea movements')
+        require(user,roles[body.event])
+        transitions={'unloaded':('at_port','unloaded'),'ready_for_pickup':('unloaded','ready_for_pickup'),'picked_up':('ready_for_pickup','in_transit'),'delivered':('in_transit','delivered')}
         sh=shipment(s,user,id); before,after=transitions[body.event]
         if sh['status']!=before: raise HTTPException(409,'Invalid cargo transition')
         if body.event=='delivered' and sh.get('hazard_stopped'):

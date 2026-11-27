@@ -147,3 +147,75 @@ def test_account_lookup_secret_stays_server_side(monkeypatch):
         return httpx.Response(200, json={'id': USER})
     monkeypatch.setattr(admin.httpx, 'get', get)
     admin.verify_auth_account(USER)
+
+
+def test_pending_supabase_users_and_role_onboarding(client, monkeypatch):
+    """Pending Supabase accounts appear by email, ignore requested admin, and enforce role/scope after approval."""
+    pending_captain = '00000000-0000-4000-8000-000000000003'
+    monkeypatch.setattr(admin, 'list_supabase_users', lambda: [
+        {
+            'id': USER,
+            'email': 'operator@example.com',
+            'email_confirmed_at': '2026-11-28T00:00:00Z',
+            'user_metadata': {'display_name': 'Port Operator', 'requested_role': 'admin'},
+        },
+        {
+            'id': pending_captain,
+            'email': 'captain@example.com',
+            'email_confirmed_at': None,
+            'user_metadata': {'display_name': 'Vessel Captain', 'requested_role': 'captain'},
+        },
+    ])
+
+    listing = client.get('/api/admin/users', headers=headers())
+    assert listing.status_code == 200
+    by_auth = {u['auth_user_id']: u for u in listing.json()['users']}
+    assert by_auth[USER]['email'] == 'operator@example.com'
+    assert by_auth[USER]['status'] == 'pending'
+    assert by_auth[USER]['requested_role'] is None  # 'admin' self-request stripped
+    assert by_auth[pending_captain]['requested_role'] == 'captain'
+    assert by_auth[pending_captain]['email_confirmed'] is False
+
+    # Pending user cannot access /api/me or any role dashboard
+    assert client.get('/api/me', headers=headers(USER)).status_code == 403
+    assert client.get('/api/port/dashboard', headers=headers(USER)).status_code == 403
+
+    # Approve USER as port operator with port_id='NMP'
+    saved = client.put(
+        f'/api/admin/users/{USER}',
+        headers=headers(),
+        json={'name': 'Port Operator', 'email': 'operator@example.com', 'role': 'port', 'port_id': 'NMP'},
+    )
+    assert saved.status_code == 200
+    assert saved.json()['email'] == 'operator@example.com'
+    assert client.get('/api/me', headers=headers(USER)).json()['role'] == 'port'
+    assert client.get('/api/port/dashboard', headers=headers(USER)).status_code == 200
+    for wrong in ('logistics', 'driver', 'captain'):
+        assert client.get(f'/api/{wrong}/dashboard', headers=headers(USER)).status_code == 403
+
+    # Disable demo captain so VES-101 can be assigned to pending_captain
+    assert client.patch('/api/admin/users/captain-demo/disable', headers=headers()).status_code == 200
+    cap_saved = client.put(
+        f'/api/admin/users/{pending_captain}',
+        headers=headers(),
+        json={'name': 'Vessel Captain', 'email': 'captain@example.com', 'role': 'captain', 'asset_id': 'VES-101'},
+    )
+    assert cap_saved.status_code == 200
+    assert client.get('/api/captain/dashboard', headers=headers(pending_captain)).status_code == 200
+    assert client.get('/api/port/dashboard', headers=headers(pending_captain)).status_code == 403
+
+def test_admin_assignment_share_is_scoped(client):
+    path = '/api/admin/users/driver-demo/assignments'
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=headers('local-logistics-demo')).status_code == 403
+    assignments = client.get(path, headers=headers()).json()
+    assert {r['id'] for r in assignments} == {'SHP-101'}
+    assert client.post(path + '/SHP-102/share', headers=headers()).status_code == 404
+    issued = client.post(path + '/SHP-101/share', headers=headers())
+    assert issued.status_code == 200
+    token = issued.json()['work_token']
+    opened = client.post('/api/driver/work/exchange', json={'token': token})
+    assert opened.status_code == 200
+    session = opened.json()['token']
+    dashboard = client.get('/api/driver/dashboard', headers={'Authorization': 'Bearer ' + session})
+    assert {s['id'] for s in dashboard.json()['shipments']} == {'SHP-101'}

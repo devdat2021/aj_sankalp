@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import AssignmentQR from './AssignmentQR'
 import { iso, options, stamp } from '../services/format'
 import { ActionButton, ActionForm, Badge, Empty, Field } from './Forms'
 
@@ -20,6 +22,12 @@ function slotStatus(sh) {
 }
 
 export default function Cargo({ data, user, mutate }) {
+  const [codes, setCodes] = useState({})
+  const driverTrucks = data.vehicles.filter(v => v.driver_id)
+  async function saveAccess(id, path, method, body) {
+    const saved = await mutate(path, method, body)
+    setCodes(previous => ({ ...previous, [id]: saved.work_token }))
+  }
   const logistics = user.role === 'logistics'
   const portOp = user.role === 'port'
   return <div className="cw-stack">
@@ -92,7 +100,16 @@ export default function Cargo({ data, user, mutate }) {
     })()}</span>
     <span>Current assignment: {sh.truck_id || 'None'}</span>
   </div>
-  <ActionForm label="Assign truck & route" disabled={!data.vehicles.length} submit={f => mutate(`/shipments/${sh.id}/assignment`, 'PUT', { truck_id: f.truck_id, route: route(f) })}><Field label="Company truck" name="truck_id" options={options(data.vehicles)} value={sh.truck_id || undefined} /><Field label="Route / instructions" name="route_name" /><p className="cw-muted">Changes during a trip use a reroute request.</p></ActionForm></details>}
+  <ActionForm label="Assign truck & route" disabled={!data.vehicles.length} submit={f => saveAccess(sh.id, `/shipments/${sh.id}/assignment`, 'PUT', { truck_id: f.truck_id, route: route(f) })}><Field label="Company truck" name="truck_id" options={options(data.vehicles)} value={sh.truck_id || undefined} /><Field label="Route / instructions" name="route_name" /><p className="cw-muted">Changes during a trip use a reroute request.</p></ActionForm></details>}
+      {logistics && sh.truck_id && !driverTrucks.some(v => v.id === sh.truck_id) && sh.status !== 'delivered' &&
+        <p>Assign a driver to this truck to enable QR access.</p>}
+      {logistics && driverTrucks.some(v => v.id === sh.truck_id) && !['delivered','completed','cancelled','canceled'].includes(sh.status) && <section>
+        {codes[sh.id] && <AssignmentQR token={codes[sh.id]} shipment={sh.id} details={{ ...sh, driver: truckDriverName(sh, data) }} />}
+        <div className="cw-actions">
+          <ActionButton action={() => saveAccess(sh.id, `/shipments/${sh.id}/driver-access?action=issue`, 'POST')}>Issue replacement QR</ActionButton>
+          <ActionButton action={() => saveAccess(sh.id, `/shipments/${sh.id}/driver-access?action=revoke`, 'POST')}>Revoke driver QR</ActionButton>
+        </div>
+      </section>}
       {logistics && !['in_transit', 'delivered'].includes(sh.status) && <details open><summary>Request slot revision</summary>
         <p>Slot conflict: {slotStatus(sh)}</p>
         <ActionForm label="Request slot revision" submit={f => mutate(`/shipments/${sh.id}/slot-revision`, 'POST', { slot_timestamp: f.slot_timestamp })}><Field label="Slot timestamp (UTC ISO)" name="slot_timestamp" type="text" placeholder="e.g. 2026-12-01T10:00:00Z" /></ActionForm>

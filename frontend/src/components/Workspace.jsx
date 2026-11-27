@@ -1,3 +1,4 @@
+import TrendNumber from './TrendNumber'
 import { stamp } from '../services/format'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -41,7 +42,7 @@ function Dashboard({ user, token, logout }) {
   useEffect(() => {
     const controller = new AbortController()
     const initial = setTimeout(() => refresh(controller.signal), 0)
-    const interval = setInterval(() => { if (!document.hidden) refresh(controller.signal) }, 8000)
+    const interval = setInterval(() => { if (!document.hidden) refresh(controller.signal) }, 30000)
     return () => { controller.abort(); clearTimeout(initial); clearInterval(interval) }
   }, [refresh])
   async function mutate(path, method, body) {
@@ -63,10 +64,10 @@ function Dashboard({ user, token, logout }) {
   ]
   const props = { data, user, mutate, token }
   return <div className="coordination-root cw-shell"><WorkspaceNav role={roles[user.role].name} tabs={tabs} current={tab} onSelect={setTab} user={user} logout={logout} unread={unread} />
-    <main className="cw-main"><div className="cw-content"><div className="cw-heading"><div><h1>{tab === 'Overview' ? (user.role === 'captain' ? 'Vessel overview' : 'Logistics overview') : tab}</h1><p>{token.startsWith('local-') ? 'Demo workspace · ' : ''}{data?.port.name || 'CoastWatch'} · {updated ? `Updated ${stamp(updated)}` : 'Connecting to operations'}</p></div><button disabled={refreshing} onClick={() => refresh()}><RefreshCw size={16} />{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>
+    <main className="cw-main"><div className="cw-content"><div className="cw-heading"><div><h1>{tab === 'Overview' ? (user.role === 'captain' ? 'Vessel overview' : 'Logistics overview') : tab}</h1><p>{token.startsWith('local-') ? 'Demo workspace · ' : ''}{data?.port.name || 'CoastWatch'} · {updated ? `Updated ${stamp(updated)}` : 'Connecting to operations'}</p></div><div><small className="last-updated">{updated ? `Last updated ${stamp(updated)}` : "Connecting…"}</small><button disabled={refreshing} onClick={() => refresh()}><RefreshCw size={16} />{refreshing ? 'Refreshing…' : 'Refresh'}</button></div></div>
       {error && <div className="cw-error" role="alert">{error}{data && <p>Showing the last successful update. It may be out of date.</p>}</div>}
       {expired ? <section className="cw-card"><h2>Sign-in required</h2><p>Your session or access has changed.</p><ActionButton action={logout}>Return to sign in</ActionButton></section> : !data ? <p role="status">{error ? 'Unable to load operations. Check the backend and retry.' : 'Loading your workspace…'}</p> : <>
-        {tab === 'Overview' && <div className="cw-stack"><div className="cw-stats">{metrics.map(([label, count]) => <article key={label}><small>{label}</small><strong>{count}</strong></article>)}</div><Capacity {...props} /><section className="cw-card"><h2>Transport overview</h2><ControlTowerMap data={data} /><p className="cw-muted">Reported or seeded positions. No automatic GPS/AIS feed is connected.</p></section><details className="cw-card overview-weather"><summary>Port weather</summary><Weather port={data.port} token={token} /></details></div>}
+        {tab === 'Overview' && <div className="cw-stack"><div className="cw-stats">{metrics.map(([label, count]) => <article key={label}><small>{label}</small><strong><TrendNumber value={count}/></strong></article>)}</div><Capacity {...props} /><section className="cw-card"><h2>Transport overview</h2><ControlTowerMap data={data} /><p className="cw-muted">Reported or seeded positions. No automatic GPS/AIS feed is connected.</p></section><details className="cw-card overview-weather"><summary>Port weather</summary><Weather port={data.port} token={token} /></details></div>}
         {tab === 'Overview' && <Intelligence token={token} user={user} shipments={data.shipments} vehicles={data.vehicles} onSaved={() => refresh()} />}
         {tab === 'Consignments' && <Cargo {...props} />}{tab === 'Requests' && <Requests {...props} />}{tab === 'Incidents' && <Incidents {...props} />}{tab === 'Notifications' && <Alerts {...props} />}{tab === 'Tracking' && <Tracking {...props} />}{tab === 'Vessel operations' && <VesselOperations {...props} />}{tab === 'Weather' && <Weather port={data.port} token={token} />}
 
