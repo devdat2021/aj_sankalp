@@ -18,6 +18,11 @@ def current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
     with transaction() as state:
         user=next((u for u in state['users'] if u['auth_user_id']==subject and u['active']),None)
     if not user: raise HTTPException(403,'Active user mapping required')
+    scopes = {'port': ('port_id',), 'logistics': ('company_id',),
+              'driver': ('company_id', 'asset_id'), 'captain': ('asset_id',)}
+    required = scopes.get(user.get('role'))
+    if required is None or any(not isinstance(user.get(key), str) or not user[key].strip() for key in required):
+        raise HTTPException(403, 'Complete role and scope mapping required')
     return user
 
 def authority(user=Depends(current_user)):

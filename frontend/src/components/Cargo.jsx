@@ -3,6 +3,22 @@ import { ActionButton, ActionForm, Badge, Empty, Field } from './Forms'
 
 const route = f => ({ id: crypto.randomUUID(), name: f.route_name, delay_hours: Number(f.delay || 0), cost: Number(f.cost || 0), risk: Number(f.risk || 0), simulated: true })
 
+function truckDriverName(sh, data) {
+  if (!sh.truck_id) return 'No truck'
+  const truck = data.vehicles?.find(v => v.id === sh.truck_id)
+  if (!truck) return 'Truck ' + sh.truck_id
+  const driver = data.users?.find(u => u.id === truck.driver_id)
+  return driver ? driver.name : truck.driver_id || 'Not assigned'
+}
+
+function slotStatus(sh) {
+  // Display slot conflict or slot revision status
+  if (!sh.slot_conflict && !sh.slot_timestamp) return 'No slot set'
+  if (sh.slot_conflict) return `Conflict: ${sh.slot_conflict}`
+  if (sh.slot_timestamp) return `Slot: ${sh.slot_timestamp}`
+  return 'Unknown'
+}
+
 export default function Cargo({ data, user, mutate }) {
   const logistics = user.role === 'logistics'
   const portOp = user.role === 'port'
@@ -63,15 +79,70 @@ export default function Cargo({ data, user, mutate }) {
     {data.shipments.map(sh => <section className="cw-card" key={sh.id}>
       <div className="cw-row"><div><small>{sh.id}</small><h2>{sh.cargo}</h2></div><Badge>{sh.status}</Badge></div>
       <p>{sh.origin || 'Source port'} → {sh.destination}</p>
-      <div className="cw-facts"><span><strong>{sh.quantity} t</strong>Cargo quantity</span><span><strong>{sh.eta_hours} h</strong>Estimated arrival</span><span><strong>{sh.requires_cold ? `${sh.temperature}°C / max ${sh.max_temperature}°C` : 'Standard'}</strong>Handling</span><span><strong>{sh.truck_id || 'Unassigned'}</strong>Truck</span><span><strong>{sh.vessel_id || 'No sea leg'}</strong>Vessel</span></div>
+      <div className="cw-facts"><span><strong>{sh.quantity} t</strong>Cargo quantity</span><span><strong>{sh.eta_hours} h</strong>Estimated arrival</span><span><strong>{sh.requires_cold ? `${sh.temperature}°C / max ${sh.max_temperature}°C` : 'Standard'}</strong>Handling</span><span><strong>{sh.truck_id || 'Unassigned'}</strong>Truck</span>
+<span><strong>Driver:</strong> {truckDriverName(sh, data)}</span>
+<span><strong>{sh.vessel_id || 'No sea leg'}</strong>Vessel</span></div>
       <p><b>Approved route:</b> {sh.route?.name || sh.route_id || 'Not assigned'}</p>
       {sh.route && <p className="cw-muted">Estimated additional time {sh.route.delay_hours} h · ₹{sh.route.cost || 0} · demo risk {sh.route.risk || 0}/100. Operator-supplied route, not verified navigation.</p>}
-      {logistics && !['in_transit', 'delivered'].includes(sh.status) && <details><summary>Assign truck and initial route</summary><ActionForm label="Assign truck & route" disabled={!data.vehicles.length} submit={f => mutate(`/shipments/${sh.id}/assignment`, 'PUT', { truck_id: f.truck_id, route: route(f) })}><Field label="Company truck" name="truck_id" options={options(data.vehicles)} value={sh.truck_id || undefined} /><Field label="Route / instructions" name="route_name" /><p className="cw-muted">Changes during a trip use a reroute request.</p></ActionForm></details>}
+      {logistics && !['in_transit', 'delivered'].includes(sh.status) && <details><summary>Assign truck and initial route</summary>
+  <div className="cw-row">
+    <span>Available company trucks: {(() => {
+      const available = data.vehicles?.filter(v => v.company_id === user.company_id) || []
+      return available.length ? available.length + ' available' : 'none'
+    })()}</span>
+    <span>Current assignment: {sh.truck_id || 'None'}</span>
+  </div>
+  <ActionForm label="Assign truck & route" disabled={!data.vehicles.length} submit={f => mutate(`/shipments/${sh.id}/assignment`, 'PUT', { truck_id: f.truck_id, route: route(f) })}><Field label="Company truck" name="truck_id" options={options(data.vehicles)} value={sh.truck_id || undefined} /><Field label="Route / instructions" name="route_name" /><p className="cw-muted">Changes during a trip use a reroute request.</p></ActionForm></details>}
+      {logistics && !['in_transit', 'delivered'].includes(sh.status) && <details open><summary>Request slot revision</summary>
+        <p>Slot conflict: {slotStatus(sh)}</p>
+        <ActionForm label="Request slot revision" submit={f => mutate(`/shipments/${sh.id}/slot-revision`, 'POST', { slot_timestamp: f.slot_timestamp })}><Field label="Slot timestamp (UTC ISO)" name="slot_timestamp" type="text" placeholder="e.g. 2026-12-01T10:00:00Z" /></ActionForm>
+        {sh.slot_conflict && <p className="cw-muted small">Conflict detected: {sh.slot_conflict}</p>}
+      </details>}
       {logistics && sh.status !== 'delivered' && <details><summary>Request port handling or truck access</summary><ActionForm label="Send port request" submit={f => mutate('/port-requests', 'POST', { shipment_id: sh.id, kind: f.kind, requested_at: iso(f.time) })}><Field label="Request type" name="kind" options={sh.truck_id ? ['handling', 'truck_access'] : ['handling']} /><Field label="Requested time (your local time)" name="time" type="datetime-local" /></ActionForm></details>}
       {['driver', 'logistics'].includes(user.role) && sh.status !== 'delivered' && <details><summary>Request a route change</summary>{data.requests.some(r => r.shipment_id === sh.id && r.status === 'pending') ? <p>A route change is awaiting logistics approval. See Requests.</p> : <ActionForm label="Submit reroute request" submit={f => mutate('/route-requests', 'POST', { shipment_id: sh.id, reason: f.reason, options: [route(f)] })}><Field label="Reason for changing route" name="reason" minLength={3} /><Field label="Proposed route / instructions" name="route_name" /><Field label="Additional time (hours)" name="delay" type="number" min="0" step="any" value={0} /><Field label="Estimated additional cost (₹)" name="cost" type="number" min="0" value={0} /><Field label="Estimated risk index (0–100)" name="risk" type="number" min="0" max="100" value={0} /><p className="cw-muted">Your proposal becomes active only after logistics approval.</p></ActionForm>}</details>}
       {user.role === 'port' && ['at_port', 'unloaded'].includes(sh.status) && <ActionButton action={() => mutate(`/shipments/${sh.id}/events`, 'POST', { event: sh.status === 'at_port' ? 'unloaded' : 'ready_for_pickup' })}>{sh.status === 'at_port' ? 'Confirm cargo unloaded' : 'Mark ready for pickup'}</ActionButton>}
       {user.role === 'driver' && ['ready_for_pickup', 'in_transit'].includes(sh.status) && <ActionButton disabled={sh.status === 'ready_for_pickup' && !data.port_requests.some(r => r.shipment_id === sh.id && r.kind === 'truck_access' && r.status === 'approved' && r.truck_id === sh.truck_id)} action={() => mutate(`/shipments/${sh.id}/events`, 'POST', { event: sh.status === 'ready_for_pickup' ? 'picked_up' : 'delivered' })}>{sh.status === 'ready_for_pickup' ? 'Confirm pickup (access approval required)' : 'Confirm delivery'}</ActionButton>}
-      <details><summary>Cargo history ({sh.events?.length || 0})</summary>{sh.events?.length ? <ol>{sh.events.map(e => <li key={e.id}>{e.event.replaceAll('_', ' ')} · {stamp(e.created_at)}</li>)}</ol> : <Empty>No movement events recorded.</Empty>}</details>
+      {/* Unified consignment history — sea / port / road */}
+      <details><summary>Consignment history ({sh.history?.length || 0})</summary>
+        {sh.history?.length ? (
+          <ol>
+            {sh.history.map(ev => {
+              const etype = ev.event.replaceAll('_', ' ').trim();
+              const ts = stamp(ev.created_at);
+              const actor = ev.actor ? ` · ${ev.actor}` : '';
+              const detail = ev.details && Object.keys(ev.details).length ? (
+                <div className="cw-muted tiny">{JSON.stringify(ev.details)}</div>
+              ) : null;
+              return <li key={ev.id}>{etype}{actor}{ts}{detail}</li>;
+            })}
+          </ol>
+        ) : (
+          <Empty>No movement events recorded.</Empty>
+        )}</details>
+
+      {logistics && sh.eligibility && <details open><summary>Pickup eligibility</summary>
+        <p>Unloaded: {sh.eligibility.unloaded ? 'Yes' : 'No'} · Ready: {sh.eligibility.ready_for_pickup ? 'Yes' : 'No'} · Truck access: {sh.eligibility.truck_access_approved ? 'Approved' : 'Not approved'}</p>
+        <p>{sh.eligibility.pickup_allowed ? 'Pickup is allowed.' : sh.eligibility.blocked_reason}</p>
+      </details>}
+
+      {/* Sea / port / road linkage summary */}
+      {sh.vessel_id || sh.route_id || sh.truck_id ? (
+        <div className="cw-card">
+          <div className="cw-row">
+            {sh.vessel_id && <span><strong>Vessel:</strong> {sh.vessel_id}</span>}
+            {sh.truck_id && <span><strong>Truck:</strong> {sh.truck_id}</span>}
+            {sh.truck_id && <span><strong>Driver:</strong> {truckDriverName(sh, data)}</span>}
+            {sh.route_id && <span><strong>Route:</strong> {sh.route_id} {sh.route_name ? `· ${sh.route_name}` : ''}</span>}
+            {sh.slot_timestamp && <span><strong>Slot:</strong> {sh.slot_timestamp}</span>}
+          </div>
+          {sh.port_id && <p><strong>Handling port:</strong> {sh.port_id}</p>}
+          {sh.origin && <p><strong>Origin:</strong> {sh.origin}</p>}
+          {sh.destination && <p><strong>Destination:</strong> {sh.destination}</p>}
+          {sh.slot_conflict && <p className="cw-error"><strong>Slot conflict:</strong> {sh.slot_conflict}</p>}
+        </div>
+      ) : (
+        <p className="cw-muted">Not assigned: no vessel, truck, or route.</p>
+      )}
     </section>)}
   </div>
 }
