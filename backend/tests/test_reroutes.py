@@ -148,3 +148,36 @@ def test_eligibility_ready_state_and_matching_access(client):
         state['port_requests'][0]['truck_id'] = 'TRK-102'
     assert not client.get('/api/shipments/SHP-101/eligibility', headers=auth('driver')).json()['pickup_allowed']
     assert client.post('/api/shipments/SHP-101/events', headers=auth('driver'), json=dict(event='picked_up')).status_code == 409
+
+
+def test_unsafe_coastal_route_blocked_and_cold_chain_warning_emitted(client):
+    # Coastal route intersects active Mulki flood incident INC-101 (13.09, 74.79); Inland route avoids it.
+    options = [
+        dict(id='COASTAL', name='Coastal road', delay_hours=0, cost=0, risk=85,
+             points=[[12.927, 74.81], [13.095, 74.79], [13.3409, 74.751]], distance=41000, duration=3600, source='OSRM road route'),
+        dict(id='INLAND', name='Inland diversion', delay_hours=1.5, cost=1200, risk=15,
+             points=[[12.927, 74.81], [13.12, 74.89], [13.24, 74.85], [13.3409, 74.751]], distance=58000, duration=5100, source='OSRM road route'),
+    ]
+    req = client.post('/api/route-requests', headers=auth('driver'),
+                      json=dict(shipment_id='SHP-101', reason='Flooding near Mulki', options=options)).json()
+    assert req['reported_restrictions']
+    coastal_opt = next(o for o in req['options'] if o['id'] == 'COASTAL')
+    inland_opt = next(o for o in req['options'] if o['id'] == 'INLAND')
+    assert coastal_opt['safe'] is False and len(coastal_opt['conflicts']) > 0
+    assert inland_opt['safe'] is True and inland_opt['conflicts'] == []
+
+    # Approving unsafe coastal option must be blocked with 409
+    blocked = decide(client, req['id'], status='approved', option='COASTAL')
+    assert blocked.status_code == 409
+
+    # Approving safe inland option succeeds and triggers cold-chain warning for SHP-101 (3C / max 4C)
+    approved = decide(client, req['id'], status='approved', option='INLAND')
+    assert approved.status_code == 200
+    data = approved.json()
+    assert data['status'] == 'approved'
+    assert data['cold_chain_warning']
+    alerts = client.get('/api/alerts', headers=auth('logistics')).json()
+    assert any('Cold-chain temperature risk' in a['message'] for a in alerts)
+    sh = client.get('/api/shipments/SHP-101', headers=auth('driver')).json()
+    assert sh['temperature'] == 3  # Temperature reading never fabricated or altered
+    assert sh['route_id'] == 'INLAND'

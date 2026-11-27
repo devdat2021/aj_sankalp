@@ -7,6 +7,8 @@ import { roles } from './services/roles'
 import { supabase, allowDemo } from './services/auth'
 import { ActionButton, ActionForm, Field } from './components/Forms'
 import './coordination.css'
+import './workspace.css'
+import './portals/driver/display.css'
 
 function Home() {
   const auth = useAuth()
@@ -26,5 +28,5 @@ function Home() {
 }
 
 export default function App() {
-  return <BrowserRouter><AuthProvider><nav className="portal-nav" aria-label="Portals"><Link to="/">CoastWatch</Link><Link to="/driver">Driver</Link><Link to="/port">Port authority</Link><Link to="/logistics">Logistics</Link><Link to="/captain">Captain</Link></nav><Routes><Route path="/" element={<Home />} />{Object.keys(roles).map(role => <Route key={role} path={`/${role}`} element={<Workspace role={role} />} />)}<Route path="/caption" element={<Navigate to="/captain" replace />} /><Route path="/truck" element={<Navigate to="/driver" replace />} /><Route path="/truck-operator" element={<Navigate to="/driver" replace />} /><Route path="*" element={<main className="cw-loading">Page not found. <Link to="/">Return to CoastWatch</Link></main>} /></Routes></AuthProvider></BrowserRouter>
+  return <BrowserRouter><AuthProvider><Routes><Route path="/" element={<><nav className="portal-nav" aria-label="Portals"><Link to="/">CoastWatch</Link><Link to="/driver">Driver</Link><Link to="/port">Port authority</Link><Link to="/logistics">Logistics</Link><Link to="/captain">Captain</Link></nav><Home /></>} />{Object.keys(roles).map(role => <Route key={role} path={`/${role}`} element={<Workspace role={role} />} />)}<Route path="/caption" element={<Navigate to="/captain" replace />} /><Route path="/truck" element={<Navigate to="/driver" replace />} /><Route path="/truck-operator" element={<Navigate to="/driver" replace />} /><Route path="*" element={<main className="cw-loading">Page not found. <Link to="/">Return to CoastWatch</Link></main>} /></Routes></AuthProvider></BrowserRouter>
 }

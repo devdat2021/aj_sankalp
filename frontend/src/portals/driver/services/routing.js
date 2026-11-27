@@ -1,6 +1,21 @@
 import { disruptions } from '../data/mockData.js'
-// Check segments as well as vertices against small local circular demo zones.
+
+export function buildHazardZones(activeIncidents = [], demo = false) {
+  const incidentZones = (activeIncidents || [])
+    .filter(inc => ['reported', 'confirmed'].includes(inc.status) && ['flood', 'roadblock', 'obstruction'].includes(inc.category) && inc.lat != null && inc.lng != null)
+    .map(inc => ({
+      id: `inc-${inc.id}`,
+      title: `${inc.category.charAt(0).toUpperCase() + inc.category.slice(1)}: ${inc.description}`,
+      center: [Number(inc.lat), Number(inc.lng)],
+      radius: inc.category === 'flood' ? 1600 : 800,
+      severity: inc.severity === 'high' ? 'critical' : 'warning',
+    }))
+  return demo ? [...disruptions, ...incidentZones] : incidentZones
+}
+
+// Check segments as well as vertices against circular disruption/hazard zones.
 export function findConflicts(points, zones = disruptions) {
+  if (!points || points.length < 2) return []
   return zones.filter(zone => {
     const project = p => [(p[1] - zone.center[1]) * 111320 * Math.cos(zone.center[0] * Math.PI / 180), (p[0] - zone.center[0]) * 111320]
     return points.slice(1).some((point, i) => {
@@ -11,33 +26,53 @@ export function findConflicts(points, zones = disruptions) {
     })
   }).map(zone => zone.title)
 }
-const decorate = route => ({ ...route, conflicts: findConflicts(route.points) })
-const fallback = shipment => [
-  { id: 'demo-coastal', name: 'Coastal corridor', distance: 41000, duration: 3600, points: [shipment.location, [13.095, 74.79], [13.18, 74.78], [13.26, 74.76], shipment.dropoff] },
-  { id: 'demo-inland', name: 'Inland diversion', distance: 58000, duration: 5100, points: [shipment.location, [13.045, 74.85], [13.12, 74.89], [13.24, 74.85], [13.31, 74.8], shipment.dropoff] },
-].map(route => decorate({ ...route, source: 'Simulated schematic · not road navigation' }))
+
+const decorate = (route, zones) => {
+  const conflicts = findConflicts(route.points, zones)
+  return { ...route, conflicts, safe: conflicts.length === 0 }
+}
+
 const cachedRoutes = new Map()
-async function fetchRoute(points, prefix, name) {
+
+async function fetchRoute(points, prefix, name, zones) {
   const coords = points.map(([lat, lng]) => `${lng},${lat}`).join(';')
-  const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&alternatives=true`, { signal: AbortSignal.timeout(10000) })
+  const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&alternatives=true`, { signal: AbortSignal.timeout(8000) })
   if (!response.ok) throw new Error('Routing service unavailable')
   const data = await response.json()
   if (data.code !== 'Ok' || !data.routes?.length) throw new Error('No road route returned')
   return data.routes.slice(0, 2).map((route, index) => {
     if (!Number.isFinite(route.distance) || !Number.isFinite(route.duration) || !route.geometry?.coordinates || route.geometry.coordinates.length < 2) throw new Error('Invalid routing response')
-    return decorate({ id: `${prefix}-${index}`, name: `${name}${index ? ' alternative' : ''}`, distance: route.distance, duration: route.duration, points: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), source: 'OSRM road route' })
+    return decorate({ id: `${prefix}-${index}`, name: `${name}${index ? ' alternative' : ''}`, distance: route.distance, duration: route.duration, points: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), source: 'OSRM road route' }, zones)
   })
 }
-export async function getRoutes(shipment) {
+
+export async function getRoutes(shipment, activeIncidents = [], demo = false) {
+  const zones = buildHazardZones(activeIncidents, demo)
   const key = JSON.stringify([shipment.location, shipment.dropoff])
   const results = await Promise.allSettled([
-    fetchRoute([shipment.location, shipment.dropoff], 'road', 'Coastal road'),
-    fetchRoute([shipment.location, [13.12, 74.89], [13.24, 74.85], shipment.dropoff], 'inland', 'Inland road'),
+    fetchRoute([shipment.location, shipment.dropoff], 'road', 'Coastal road', zones),
+    fetchRoute([shipment.location, [13.045, 74.85], [13.12, 74.89], [13.24, 74.85], shipment.dropoff], 'inland', 'Inland diversion', zones),
   ])
-  const roads = results.flatMap(result => result.status === 'fulfilled' ? result.value : [])
+  let roads = results.flatMap(result => result.status === 'fulfilled' ? result.value : [])
   if (roads.length) {
     cachedRoutes.set(key, roads)
-    return { routes: roads.length > 1 ? roads : [...roads, fallback(shipment)[1]], notice: results.some(r => r.status === 'rejected') ? 'Some OSRM requests failed. Available routes shown; schematic fallback may be included.' : 'Road geometry from OSRM. Traffic, flooding and truck restrictions are not included by OSRM.' }
+  } else if (cachedRoutes.has(key)) {
+    roads = cachedRoutes.get(key).map(route => decorate({ ...route, source: 'Cached OSRM road route' }, zones))
   }
-  return { routes: cachedRoutes.has(key) ? cachedRoutes.get(key).map(route => ({ ...route, source: 'Cached OSRM road route' })) : fallback(shipment), notice: cachedRoutes.has(key) ? 'OSRM unavailable. Showing routes cached in this session.' : 'OSRM unavailable. Dashed schematic routes are simulated and do not follow verified roads.' }
+
+  // Sort safe routes first
+  roads.sort((a, b) => Number(b.safe) - Number(a.safe))
+  const safeCount = roads.filter(r => r.safe).length
+  const allBlocked = roads.length > 0 && safeCount === 0
+
+  let notice
+  if (allBlocked) {
+    notice = 'No safe route available. Logistics intervention required.'
+  } else if (!roads.length) {
+    notice = 'Road routes unavailable. Contact logistics for route instructions.'
+  } else {
+    notice = `${safeCount} safe route option(s) available. Blocked/flooded coastal corridors are flagged and excluded from approval.`
+  }
+
+  return { routes: roads, safeRoutes: roads.filter(r => r.safe), allBlocked, notice, zones }
 }

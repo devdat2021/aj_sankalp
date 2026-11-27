@@ -9,7 +9,7 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning, EtaUpdate)
 from app.services.port_service import find, audit, now, evaluate_docking_request, enrich_docking_requests, get_vessel_cargo
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes, slot_conflict, request_slot_revision
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view, consignment_history, assign_eligible, eligibility, reroute_block, route_request_view, supersede_routes, slot_conflict, request_slot_revision, route_hazard_conflicts, active_road_hazards
 from copy import deepcopy
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
@@ -35,7 +35,7 @@ def dashboard(role: str,user=Depends(current_user)):
             vessels=[logistics_vessel(v) if role=='logistics' else v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
             vehicles=[v for v in s['vehicles'] if (v.get('company_id')==user['company_id'] if role=='logistics' else v['id'] in {r.get('truck_id') for r in rows})],
             incidents=[r for r in s['incidents'] if r['shipment_id'] in ids],
-            requests=[route_request_view(r,by_id[r['shipment_id']]) for r in s['requests'] if r['shipment_id'] in ids],
+            requests=[route_request_view(r,by_id[r['shipment_id']],s) for r in s['requests'] if r['shipment_id'] in ids],
             alerts=[alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
             docking_requests=enrich_docking_requests(s, [r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))]))
@@ -185,7 +185,7 @@ def review(id: str,body: Review,user=Depends(authority)):
 def requests(user=Depends(current_user)):
     with transaction() as s:
         rows={r['id']:r for r in s['shipments'] if visible(user,r)}
-        return [route_request_view(r,rows[r['shipment_id']]) for r in s['requests'] if r['shipment_id'] in rows]
+        return [route_request_view(r,rows[r['shipment_id']],s) for r in s['requests'] if r['shipment_id'] in rows]
 
 @router.post('/route-requests',status_code=201)
 def request_route(body: RouteRequest,user=Depends(current_user)):
@@ -199,9 +199,11 @@ def request_route(body: RouteRequest,user=Depends(current_user)):
                 reason=reroute_block(existing,sh)
                 if not reason: raise HTTPException(409,'Pending reroute exists')
                 existing.update(status='superseded',superseded_reason=reason,superseded_at=now())
-        row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],requester_id=user['id'],status='pending',created_at=now(),
-            truck_id=sh.get('truck_id'),assignment_version=sh.get('assignment_version',0),base_route_id=sh.get('route_id'),base_route=deepcopy(sh.get('route')),base_eta_hours=sh['eta_hours'])
-        s['requests'].append(row); notify(s,'Reroute requested: '+sh['id'],[sh]); return row
+        hazards=active_road_hazards(s,sh)
+        row=body.model_dump() | dict(id=str(uuid4()),port_id=sh['port_id'],company_id=sh.get('company_id'),requester_id=user['id'],status='pending',created_at=now(),
+            truck_id=sh.get('truck_id'),assignment_version=sh.get('assignment_version',0),base_route_id=sh.get('route_id'),base_route=deepcopy(sh.get('route')),base_eta_hours=sh['eta_hours'],
+            reported_restrictions=[h['title'] for h in hazards])
+        s['requests'].append(row); notify(s,'Reroute requested: '+sh['id'],[sh]); return route_request_view(row,sh,s)
 
 @router.patch('/route-requests/{id}')
 def decide(id: str,body: Decision,user=Depends(current_user)):
@@ -215,6 +217,9 @@ def decide(id: str,body: Decision,user=Depends(current_user)):
         if body.status=='approved':
             option=next((o for o in row['options'] if o['id']==body.option_id),None)
             if option is None: raise HTTPException(422,'Choose a valid option')
+            conflicts=route_hazard_conflicts(s,sh,option)
+            if conflicts:
+                raise HTTPException(409,f"Cannot approve unsafe route intersecting reported hazards: {', '.join(conflicts)}")
             sh.update(route_id=option['id'],route=deepcopy(option)); sh['eta_hours']+=option['delay_hours']
             sh['assignment_version']=sh.get('assignment_version',0)+1
             sh['hazard_stopped']=False
@@ -226,10 +231,16 @@ def decide(id: str,body: Decision,user=Depends(current_user)):
                     v['status']='In transit' if sh.get('status')=='in_transit' else 'Awaiting pickup'
                     v['hazard_stopped']=False
                     v['hazard_reason']=None
+            if sh.get('requires_cold') and option.get('delay_hours',0)>0:
+                margin=round((sh.get('max_temperature',4)-sh.get('temperature',3)),1)
+                row['cold_chain_warning']=f"Cold-chain temperature risk for {sh['id']}: +{option['delay_hours']}h reroute delay (reported {sh.get('temperature')}°C / max {sh.get('max_temperature')}°C, margin {margin}°C)"
         row['eta_after_hours']=sh['eta_hours']
         row.update(status=body.status, option_id=body.option_id if body.status=='approved' else None,
                    decision_reason=body.reason, reviewer=user['id'], reviewed_at=now())
-        notify(s,f"{sh['id']}: reroute {body.status}. {body.reason}",[sh],event_key=id+':decision'); audit(s,user,body.status,id); return row
+        msg=f"{sh['id']}: reroute {body.status}. {body.reason}"
+        if row.get('cold_chain_warning'):
+            msg+=f" · {row['cold_chain_warning']}"
+        notify(s,msg,[sh],severity='warning' if row.get('cold_chain_warning') else 'info',event_key=id+':decision'); audit(s,user,body.status,id); return route_request_view(row,sh,s)
 
 @router.get('/ports/{id}/capacity')
 def capacity(id: str,user=Depends(current_user)):

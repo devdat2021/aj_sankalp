@@ -28,17 +28,15 @@ export function Capacity({ data, user, mutate }) {
 
 export function MarineConditions({ portId, token }) {
   const [weather, setWeather] = useState(null)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const loading = Boolean(portId && !weather && !error)
 
   useEffect(() => {
     let active = true
     if (!portId) return
-    setLoading(true)
     api(`/ports/${portId}/weather?mode=marine`, token)
       .then(res => { if (active) { setWeather(res); setError('') } })
       .catch(err => { if (active) setError(err.message) })
-      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [portId, token])
 
@@ -67,7 +65,7 @@ export function MarineConditions({ portId, token }) {
   </section>
 }
 
-export function VesselOperations({ data, mutate, token, user }) {
+export function VesselOperations({ data, mutate, token }) {
   return <div className="cw-stack">{!data.vessels.length && <Empty>No vessel assigned.</Empty>}{data.vessels.map(v => {
     const activeDock = data.docking_requests.find(r => r.vessel_id === v.id && ['pending', 'approved'].includes(r.status))
     const state = v.movement_status || 'planned'

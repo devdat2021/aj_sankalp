@@ -36,6 +36,8 @@ class Option(Input):
     distance: float | None = Field(default=None, ge=0)
     duration: float | None = Field(default=None, ge=0)
     source: str | None = Field(default=None, max_length=200)
+    conflicts: list[str] | None = None
+    safe: bool | None = None
 
     @field_validator('points')
     @classmethod

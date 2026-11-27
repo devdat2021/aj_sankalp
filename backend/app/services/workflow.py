@@ -1,3 +1,4 @@
+import math
 from uuid import uuid4
 from fastapi import HTTPException
 from app.services.port_service import find, now
@@ -65,9 +66,90 @@ def reroute_block(row, sh):
     return None
 
 
-def route_request_view(row, sh):
+def active_road_hazards(state, sh):
+    """Collect active road incidents (flood, roadblock, obstruction) relevant to a consignment."""
+    hazards = []
+    for inc in state.get('incidents', []):
+        if inc.get('status') not in {'reported', 'confirmed'}:
+            continue
+        if inc.get('category') not in {'flood', 'roadblock', 'obstruction'}:
+            continue
+        if inc.get('shipment_id') != sh['id'] and inc.get('port_id') != sh.get('port_id'):
+            continue
+        lat, lng = inc.get('lat'), inc.get('lng')
+        if lat is None or lng is None:
+            continue
+        radius = 1600.0 if inc['category'] == 'flood' else 800.0
+        hazards.append({
+            'id': inc['id'],
+            'category': inc['category'],
+            'severity': inc.get('severity', 'high'),
+            'title': f"{inc['category'].title()}: {inc.get('description', '')}".strip(),
+            'description': inc.get('description', ''),
+            'center': (float(lat), float(lng)),
+            'radius': radius,
+        })
+    return hazards
+
+
+def _segment_intersects_circle(p1, p2, center, radius_m):
+    lat0, lng0 = center
+    cos_lat = math.cos(math.radians(lat0))
+    def proj(p):
+        return ((p[1] - lng0) * 111320.0 * cos_lat, (p[0] - lat0) * 111320.0)
+    ax, ay = proj(p1)
+    bx, by = proj(p2)
+    dx, dy = bx - ax, by - ay
+    denom = dx * dx + dy * dy
+    t = max(0.0, min(1.0, -(ax * dx + ay * dy) / denom)) if denom else 0.0
+    return math.hypot(ax + t * dx, ay + t * dy) <= radius_m
+
+
+def route_hazard_conflicts(state, sh, option):
+    """Return list of active road hazard descriptions intersecting this route option."""
+    hazards = active_road_hazards(state, sh)
+    if not hazards:
+        return []
+    points = option.get('points') or []
+    conflicts = []
+    if len(points) >= 2:
+        for h in hazards:
+            if any(_segment_intersects_circle(points[i], points[i + 1], h['center'], h['radius']) for i in range(len(points) - 1)):
+                conflicts.append(h['title'])
+    else:
+        name_lower = (option.get('name') or '').lower()
+        if 'coastal' in name_lower:
+            for h in hazards:
+                if any(k in (h.get('description') or '').lower() for k in ('mulki', 'kaup', 'nh66', 'coastal')):
+                    conflicts.append(h['title'])
+    return conflicts
+
+
+def route_request_view(row, sh, state=None):
     reason = reroute_block(row, sh) if row['status'] == 'pending' else None
-    return row | ({'status': 'superseded', 'superseded_reason': reason} if reason else {})
+    view = row | ({'status': 'superseded', 'superseded_reason': reason} if reason else {})
+    if state is not None:
+        hazards = active_road_hazards(state, sh)
+        view['reported_restrictions'] = [h['title'] for h in hazards]
+        view['cargo_info'] = {
+            'cargo': sh.get('cargo'),
+            'quantity': sh.get('quantity'),
+            'requires_cold': sh.get('requires_cold', False),
+            'temperature': sh.get('temperature'),
+            'max_temperature': sh.get('max_temperature'),
+            'origin': sh.get('origin'),
+            'destination': sh.get('destination'),
+        }
+        if view.get('options'):
+            enriched_opts = []
+            for opt in view['options']:
+                opt_copy = dict(opt)
+                conflicts = route_hazard_conflicts(state, sh, opt_copy)
+                opt_copy['conflicts'] = conflicts
+                opt_copy['safe'] = len(conflicts) == 0
+                enriched_opts.append(opt_copy)
+            view['options'] = enriched_opts
+    return view
 
 
 def slot_conflict(sh, slot_timestamp):

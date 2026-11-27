@@ -39,22 +39,25 @@ export function createDriverApi(token) {
         location
       }, shipment)
     },
-    requestReroute(route, shipment, active) {
+    requestReroute(route, shipment, active, alternatives = []) {
+      const ordered = [route, ...alternatives.filter(a => a.id !== route.id && a.safe !== false)]
+      const options = ordered.slice(0, 4).map(opt => ({
+        id: crypto.randomUUID(),
+        name: opt.name,
+        delay_hours: Math.max(0, Number(((opt.duration - (active?.duration || 0)) / 3600).toFixed(2))),
+        cost: opt.id?.includes('inland') ? 1200 : 0,
+        risk: opt.conflicts?.length ? 85 : 15,
+        simulated: true,
+        points: opt.points,
+        distance: opt.distance,
+        duration: opt.duration,
+        source: opt.source
+      }))
+      const conflicts = route.conflicts?.length ? `Reported restrictions: ${route.conflicts.join(', ')}` : 'Safe alternative route requested'
       return api('/route-requests', token, 'POST', {
         shipment_id: shipment.id,
-        reason: `Driver requests ${route.name}; ${route.conflicts.length ? route.conflicts.join(', ') : 'alternative route for logistics review'}`,
-        options: [{
-          id: crypto.randomUUID(),
-          name: route.name,
-          delay_hours: Math.max(0, (route.duration - (active?.duration || 0)) / 3600),
-          cost: 0,
-          risk: route.conflicts.length ? 75 : 25,
-          simulated: true,
-          points: route.points,
-          distance: route.distance,
-          duration: route.duration,
-          source: route.source
-        }]
+        reason: `Driver requests ${route.name}; ${conflicts}`,
+        options
       })
     },
     updateLocation(lat, lng) {
@@ -66,9 +69,8 @@ export function createDriverApi(token) {
   }
 }
 
-export function driverShipment(row, data, user) {
+export function driverShipment(row, data, user, demo = false) {
   const truck = data.vehicles?.find(v => v.id === row.truck_id)
-  const coastalDemo = /udupi/i.test(row.destination)
   const accessSlot = (data.port_requests || []).find(r => r.shipment_id === row.id && r.kind === 'truck_access' && r.status === 'approved')?.slot
   const activeHazards = (data.incidents || []).filter(i => i.shipment_id === row.id && ['reported', 'confirmed'].includes(i.status))
   const isStopped = row.hazard_stopped ?? Boolean(truck?.status === 'Stopped / Unable to continue' || activeHazards.length > 0)
@@ -79,7 +81,7 @@ export function driverShipment(row, data, user) {
     refrigerated: row.requires_cold,
     pickup: [data.port.lat, data.port.lng],
     location: truck ? [truck.lat, truck.lng] : [data.port.lat, data.port.lng],
-    dropoff: row.destination_location || (coastalDemo ? [13.3409, 74.751] : null),
+    dropoff: row.destination_location || (demo && /udupi/i.test(row.destination) ? [13.3409, 74.751] : null),
     driver: user.name,
     vehicle: truck?.name || row.truck_id,
     status: isStopped ? 'Stopped / Unable to continue' : row.status.replaceAll('_', ' '),

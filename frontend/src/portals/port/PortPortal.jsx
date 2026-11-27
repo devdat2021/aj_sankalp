@@ -7,9 +7,13 @@ import Cargo from '../../components/Cargo';
 import Requests from '../../components/Requests';
 import Weather from '../../components/Weather';
 import {Alerts, Incidents, Capacity} from '../../components/Operations';
-import {ActionButton, Badge} from '../../components/Forms';
+import {Badge} from '../../components/Forms';
 import {api} from '../../services/api';
 import ControlTowerMap from './components/ControlTowerMap';
+
+import WorkspaceNav from '../../components/WorkspaceNav';
+import { LayoutDashboard, Truck, Package, TriangleAlert, ClipboardList, Bell, CloudSun, Activity, History } from 'lucide-react';
+const tabs = [['Overview', LayoutDashboard], ['Arrivals & trucks', Truck], ['Cargo', Package], ['Incidents', TriangleAlert], ['Requests', ClipboardList], ['Alerts', Bell], ['Weather', CloudSun], ['Crisis Simulator', Activity], ['Audit trail', History]];
 
 export default function PortPortal(){
  const {token,user,logout}=useAuth();
@@ -144,7 +148,7 @@ export default function PortPortal(){
   </>;
  };
 
- return <div className="layout"><aside><div className="brand">◈ COASTWATCH<span>PORT AUTHORITY</span></div><small>WORKSPACE</small>{['Overview','Arrivals & trucks','Cargo','Incidents','Requests','Alerts','Weather','Crisis Simulator','Audit trail'].map(t=><button className={t===tab?'active':''} onClick={()=>{setTab(t);setQuery('')}} key={t}>{t}</button>)}<div className="asidebottom">New Mangalore Port<br/><small>NMP · Karnataka, India</small><ActionButton action={logout}>Sign out</ActionButton></div></aside><main><header><span>Operations / {tab}</span><span className="badge">SIMULATED TELEMETRY</span></header><div className="title"><div><p className="eyebrow">COASTAL OPERATIONS CENTER</p><h1>{tab==='Overview'?'Port control tower':tab}</h1><p>New Mangalore Port · Shared operational picture</p></div><button onClick={refresh}>Refresh data</button></div>{error&&<div className="error" role="alert">{error}</div>}{!data?<p>Loading operations…</p>:<>
+ return <div className="layout"><WorkspaceNav role="Port authority" tabs={tabs} current={tab} onSelect={name => {setTab(name);setQuery('')}} user={user} logout={logout} /><main><div className="title"><div><h1>{tab==='Overview'?'Port control tower':tab}</h1><p>{data?.port?.name || 'Port operations'} · Simulated telemetry</p></div><button onClick={refresh}>Refresh data</button></div>{error&&<div className="error" role="alert">{error}</div>}{!data?<p>Loading operations…</p>:<>
  {tab==='Crisis Simulator'&&<div className="crisis-workspace"><Suspense fallback={<p>Loading simulator...</p>}><CrisisSimulator /></Suspense></div>}
  {tab==='Overview'&&renderOverview()}
  {tab==='Arrivals & trucks'&&<section><input aria-label="Search records" placeholder="Search records…" value={query} onChange={e=>setQuery(e.target.value)}/><><h2>Vessel arrivals</h2>{table(data.vessels,['id','name','status','eta'])}<h2>Truck operations</h2>{table(data.vehicles,['id','name','status'])}</></section>}

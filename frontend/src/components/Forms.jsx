@@ -13,7 +13,8 @@ export function ActionForm({ children, submit, label = 'Save', reset = false, di
     const form = event.currentTarget
     setBusy(true); setError(''); setSuccess('')
     try {
-      await submit(Object.fromEntries(new FormData(form)))
+      const saved = await submit(Object.fromEntries(new FormData(form)))
+      if (saved === false) return
       setSuccess('Saved successfully.')
       if (reset) form.reset()
     } catch (err) { setError(err.message) }

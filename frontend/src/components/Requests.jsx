@@ -17,7 +17,9 @@ function Decision({ row, type, mutate, berths, compatibleBerths }) {
     const body = { status: f.status, reason: f.reason }
     if (f.status === 'approved') {
       if (type === 'route-requests') {
-        if (!row.options.some(o => o.id === f.option_id)) throw new Error('Choose a route option to approve.')
+        const chosen = row.options.find(o => o.id === f.option_id)
+        if (!chosen) throw new Error('Choose a route option to approve.')
+        if (chosen.conflicts?.length) throw new Error(`Cannot approve unsafe route: ${chosen.conflicts.join(', ')}`)
         body.option_id = f.option_id
       } else {
         if (!f.slot) throw new Error('Choose an approved time.')
@@ -33,12 +35,27 @@ function Decision({ row, type, mutate, berths, compatibleBerths }) {
       body.suggested_start = iso(f.suggested_start)
       body.suggested_end = iso(f.suggested_end)
     }
+    if (type === 'route-requests') {
+      const decision = f.status === 'approved' ? 'Approve ' + row.options.find(option => option.id === f.option_id).name : 'Reject reroute'
+      if (!window.confirm(decision + ' for shipment ' + row.shipment_id + '?')) return false
+    }
     return mutate(`/${type}/${row.id}`, 'PATCH', body)
   }}>
     <Field label="Decision" name="status" options={statusOptions} value={status} onChange={e => setStatus(e.target.value)} />
     <Field label="Reason" name="reason" minLength={3} maxLength={500} />
     {type === 'route-requests' ? (
-      <Field label="Route option (for approval)" name="option_id" required={false} options={[{ value: '', label: 'Choose a proposed route' }, ...row.options.map(o => ({ value: o.id, label: `${o.name} · +${o.delay_hours} h · ₹${o.cost || 0}` }))]} />
+      <Field
+        label="Route option (for approval)"
+        name="option_id"
+        required={false}
+        options={[
+          { value: '', label: 'Choose a proposed route' },
+          ...row.options.map(o => ({
+            value: o.id,
+            label: `${o.conflicts?.length ? '⛔ BLOCKED: ' : '✅ '}${o.name} · +${o.delay_hours} h · ₹${o.cost || 0}`,
+          })),
+        ]}
+      />
     ) : showSlotSuggest ? (
       <>
         <Field label="Suggested window start" name="suggested_start" type="datetime-local" />
@@ -67,14 +84,38 @@ function Decision({ row, type, mutate, berths, compatibleBerths }) {
 
 function RouteReview({ row, shipment }) {
   const selected = row.options.find(o => o.id === row.option_id)
+  const cargo = row.cargo_info || shipment
+  const restrictions = row.reported_restrictions || []
   return <div>
     <p>Submitted: {stamp(row.created_at)} · Truck: {row.truck_id || shipment?.truck_id || 'Unassigned'}</p>
+    {cargo && (
+      <p>
+        Cargo: <b>{cargo.cargo}</b> ({cargo.quantity} t) · {cargo.origin || 'Port'} → {cargo.destination}
+        {cargo.requires_cold && ` · Cold chain: ${cargo.temperature}°C / max ${cargo.max_temperature}°C`}
+      </p>
+    )}
     <p>Current approved route: {shipment?.route?.name || shipment?.route_id || 'Not assigned'} · Current cargo ETA: {shipment?.eta_hours ?? 'Unknown'} hours</p>
+    {row.status === 'pending' && <p className="cw-muted">Additional information requests are unavailable in this workspace.</p>}
     <p>Proposal baseline: {row.base_route?.name || ('assignment_version' in row ? 'No approved route recorded' : 'Legacy request; no baseline snapshot')}</p>
-    <table><thead><tr><th>Proposed route</th><th>Additional delay</th><th>Cost estimate</th><th>Risk estimate</th><th>ETA if approved now</th></tr></thead><tbody>
-      {row.options.map(o => <tr key={o.id}><td>{o.name}{row.option_id === o.id ? ' (selected)' : ''}<small> · {o.source || 'Operator estimate'}</small></td><td>{o.delay_hours} h</td><td>₹{o.cost ?? 0}</td><td>{o.risk ?? 0}/100</td><td>{row.status === 'pending' && shipment ? `${Number(shipment.eta_hours) + Number(o.delay_hours)} h` : '—'}</td></tr>)}
-    </tbody></table>
-    <p className="cw-muted">Estimates require logistics review. A proposal does not change the active route. ETA is a relative cargo estimate; no delivery or pickup slot is rescheduled here.</p>
+    {restrictions.length > 0 && (
+      <p className="cw-error" role="status"><b>Reported road closures / flooding:</b> {restrictions.join(' · ')}</p>
+    )}
+    {row.cold_chain_warning && (
+      <p className="cw-error" role="status"><b>Cold-chain warning:</b> {row.cold_chain_warning}</p>
+    )}
+    <div className="cw-table" tabIndex={0} role="region" aria-label="Proposed routes"><table><thead><tr><th>Proposed route</th><th>Safety</th><th>Additional delay</th><th>Cost estimate</th><th>Risk estimate</th><th>ETA if approved now</th></tr></thead><tbody>
+      {row.options.map(o => (
+        <tr key={o.id}>
+          <td>{o.name}{row.option_id === o.id ? ' (selected)' : ''}<small> · {o.source || 'Operator estimate'}</small></td>
+          <td>{o.conflicts?.length ? `⛔ Blocked (${o.conflicts.join(', ')})` : o.safe === true ? 'Clear of reported hazards' : 'Unverified'}</td>
+          <td>{o.delay_hours} h</td>
+          <td>₹{o.cost ?? 0}</td>
+          <td>{o.risk ?? 0}/100</td>
+          <td>{row.status === 'pending' && shipment ? `${Number(shipment.eta_hours) + Number(o.delay_hours)} h` : '—'}</td>
+        </tr>
+      ))}
+    </tbody></table></div>
+    <p className="cw-muted">Estimates require logistics review. Blocked routes cannot be approved. ETA is a relative cargo estimate.</p>
     {row.status === 'approved' && <p>Approved route: {selected?.name || row.option_id}{row.eta_after_hours != null && ` · Recorded ETA: ${row.eta_before_hours} → ${row.eta_after_hours} h`}</p>}
     {row.status === 'rejected' && <p>Proposal rejected; this decision did not change the approved route or ETA.</p>}
     {row.decision_reason && <p>Decision reason: {row.decision_reason}</p>}
