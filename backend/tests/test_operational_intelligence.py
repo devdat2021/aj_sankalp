@@ -179,6 +179,8 @@ def test_gemini_503_is_not_retried_and_same_retirement_fallback_is_not_called(mo
     monkeypatch.setattr(settings,'gemini_api_key','test-only-key')
     monkeypatch.setattr(settings,'gemini_model','gemini-3.8-flash')
     monkeypatch.setattr(settings,'gemini_retired_model_fallback','gemini-3.8-flash')
+    monkeypatch.setattr(settings,'gemini_availability_fallback','')
+    monkeypatch.setattr(service.external,'_availability_circuit',{})
     monkeypatch.setattr(service.external,'_resolved_models',{})
     calls=[]
 
@@ -268,3 +270,52 @@ def test_road_hazards_make_google_plan_advisory(client):
     rec=client.get('/api/intelligence/recommendations',headers=auth('logistics')).json()[0]
     assert rec['advisory']
     assert 'Route geometry unavailable' in rec['reason']
+
+
+def test_model_availability_fallback_is_reported_and_reused(monkeypatch):
+    external=service.external
+    monkeypatch.setattr(external.settings,'gemini_api_key','test-only')
+    monkeypatch.setattr(external.settings,'gemini_model','primary')
+    monkeypatch.setattr(external.settings,'gemini_availability_fallback','working')
+    monkeypatch.setattr(external,'_availability_circuit',{})
+    monkeypatch.setattr(external,'_resolved_models',{})
+    calls=[]
+    def post(url,**kwargs):
+        calls.append(url)
+        if 'primary:' in url:
+            return httpx.Response(503,json={'error':{'status':'UNAVAILABLE'}})
+        return httpx.Response(200,json={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':'{"ok":true}'}]}}]})
+    monkeypatch.setattr(external.httpx,'post',post)
+    assert external.gemini({}, {})=={'ok':True}
+    assert external.gemini_status()['effective_model']=='working'
+    assert '503' in external.gemini_status()['fallback_reason']
+    external.gemini({}, {})
+    assert len(calls)==3  # Failed primary is bypassed during the circuit period.
+
+
+@pytest.mark.parametrize('code',[400,401,403,429])
+def test_access_and_billing_errors_never_switch_models(monkeypatch,code):
+    external=service.external
+    monkeypatch.setattr(external.settings,'gemini_api_key','test-only')
+    monkeypatch.setattr(external.settings,'gemini_model','primary')
+    monkeypatch.setattr(external.settings,'gemini_availability_fallback','working')
+    monkeypatch.setattr(external,'_availability_circuit',{})
+    calls=[]
+    def post(*args,**kwargs):
+        calls.append(1)
+        return httpx.Response(code,json={'error':{'status':'ACCESS_OR_QUOTA_ERROR'}})
+    monkeypatch.setattr(external.httpx,'post',post)
+    with pytest.raises(IntegrationError): external.gemini({}, {})
+    assert len(calls)==1
+
+
+def test_expired_and_changed_recommendations_are_not_presented_as_pending(client):
+    _,rec=analyze(client)
+    with connection.transaction() as state:
+        next(r for r in state['recommendations'] if r['id']==rec['id'])['expires_at']=(utcnow()-timedelta(seconds=1)).isoformat()
+    result=client.get('/api/intelligence/recommendations',headers=auth('logistics')).json()[0]
+    assert result['status']=='expired'
+    with connection.transaction() as state:
+        next(r for r in state['recommendations'] if r['id']==rec['id'])['expires_at']=(utcnow()+timedelta(minutes=10)).isoformat()
+        state['vehicles'][0]['available']=False
+    assert client.get('/api/intelligence/recommendations',headers=auth('logistics')).json()[0]['status']=='stale'

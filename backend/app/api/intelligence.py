@@ -7,6 +7,7 @@ from app.services.operational_intelligence import enqueue, trigger, decide
 from app.services.workflow import require, shipment, visible
 from app.services.port_service import audit
 from app.services.intelligence_external import effective_gemini_model
+from app.intelligence.operational import dt, utcnow, fingerprint
 
 router = APIRouter(prefix='/api/intelligence', tags=['Operational intelligence'])
 
@@ -47,9 +48,16 @@ def analyses(user=Depends(current_user)):
 @router.get('/recommendations')
 def recommendations(user=Depends(current_user)):
     with transaction() as state:
+        current_fingerprint = fingerprint(state)
         ids = {s['id'] for s in state['shipments'] if visible(user,s)}
         output = []
         for r in reversed(state['recommendations']):
+            r = dict(r)
+            if r['status'] == 'pending':
+                if dt(r['expires_at']) <= utcnow():
+                    r.update(status='expired', unavailable_reason='This proposal expired. Analyze the current plan again.')
+                elif r['fingerprint'] != current_fingerprint:
+                    r.update(status='stale', unavailable_reason='Operations changed. Analyze the current plan again.')
             overlap = set(r['shipment_ids']) & ids
             if not overlap:
                 continue

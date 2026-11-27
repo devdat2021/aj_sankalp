@@ -22,10 +22,12 @@ def enqueue(state, root, trigger, actor_id=None, retry=False):
     cutoff = utcnow() - timedelta(seconds=settings.intelligence_cache_seconds)
     ids = sorted(s['id'] for s in affected(state, root))
     for job in reversed(state['intelligence_jobs']):
+        if trigger == 'deadline_exposure' and job['shipment_ids']==ids and job['fingerprint']==fp and job['trigger']==trigger:
+            return job  # A clock scan is not a new incident; never rebill unchanged overdue records.
         if job['shipment_ids'] == ids and job['fingerprint'] == fp and dt(job['created_at']) > cutoff:
-            if not retry or job['status'] in {'queued','running'}:
+            if job['status'] in {'queued','running'} or (not retry and job['status'] not in {'stale','superseded','failed'}):
                 return job
-            if dt(job.get('completed_at',job['created_at'])) > utcnow()-timedelta(seconds=60):
+            if retry and dt(job.get('completed_at',job['created_at'])) > utcnow()-timedelta(seconds=60):
                 raise HTTPException(429,'Wait at least one minute before explicitly repeating paid analysis')
             break
     for job in state['intelligence_jobs']:
@@ -141,16 +143,18 @@ def analyze(state, job):
     entities.update(v['id'] for v in fleet)
     entities.update(i for e in evidence for i in e['entity_ids'])
     context = dict(entity_ids=sorted(entities), evidence=evidence, candidates=candidates, missing_inputs=missing,
-        weather=weather, fleet=[{k: v.get(k) for k in ('id','available','capacity_kg','refrigerated','available_from','available_until')} for v in fleet],
-        shipments=rows, trigger=job['trigger'], unassigned_shipments=skipped,
+        fleet=[{k: v.get(k) for k in ('id','available','capacity_kg','refrigerated','available_from','available_until')} for v in fleet],
+        shipments=[{k:s.get(k) for k in ('id','cargo','status','vessel_id','truck_id','requires_cold','cargo_ready_at','delivery_deadline')} for s in rows], trigger=job['trigger'], unassigned_shipments=skipped,
         constraints=['No domain capacity is reserved by optimization', 'Existing OSRM routes and incident approval workflows remain authoritative for road hazards',
                      'No operational risk probability, financial savings or spoilage estimate can be inferred from missing inputs'])
     analyst = None
     try:
         analyst = validate_analyst(external.gemini(context, AnalystReview.model_json_schema()), context)
-        integrations['gemini'] = dict(status='verified', checked_at=now(), configured_model=settings.gemini_model, effective_model=external.effective_gemini_model())
+        integrations['gemini'] = dict(status='verified', checked_at=now(), **external.gemini_status())
     except (external.IntegrationError, ValueError) as exc:
-        integrations['gemini'] = dict(status='unavailable', error=str(exc) if isinstance(exc, external.IntegrationError) else 'Structured analyst response failed grounding validation', checked_at=now(), configured_model=settings.gemini_model, effective_model=external.effective_gemini_model())
+        from pydantic import ValidationError
+        reason = str(exc) if isinstance(exc, external.IntegrationError) else ('Analyst JSON did not match the required schema' if isinstance(exc,ValidationError) else str(exc))
+        integrations['gemini'] = dict(status='unavailable', error=reason, checked_at=now(), **external.gemini_status())
     recs = []
     for candidate in candidates:
         related = [s for s in rows if s['id'] in candidate['shipment_ids']]
@@ -160,7 +164,7 @@ def analyze(state, job):
             status='advisory' if candidate['advisory'] else 'pending', decisions=[],
             source=('Google Route Optimization + domain screening'+ (' + validated Gemini review' if analyst else '; Gemini unavailable')) if candidate.get('source_kind')=='google' else 'deterministic operational calculation',
             evidence=[e for e in evidence if e['id'] in candidate['evidence_ids']], port_id=job['port_id']))
-    return dict(status='completed' if analyst and integrations['google']['status']=='verified' else 'degraded',
+    return dict(status=('needs_input' if payload is None else 'completed' if integrations['google']['status']=='verified' else 'degraded') if analyst else 'degraded',
                 integrations=integrations, evidence=evidence, analyst=analyst, missing_inputs=missing,
                 affected_entities=sorted(entities), unassigned_shipments=skipped,
                 comparison=[c for r in recs for c in (r.get('impact') or [])]), recs

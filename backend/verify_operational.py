@@ -17,6 +17,8 @@ from app.services.intelligence_external import optimize
 
 
 def main():
+    if '--model' in sys.argv:
+        settings.gemini_model=sys.argv[sys.argv.index('--model')+1]
     with transaction() as s:
         print('Storage:', 'MongoDB' if settings.mongodb_uri else 'local demo JSON')
         print('Operational counts:', {k:len(s[k]) for k in ('shipments','vessels','vehicles','users')})
@@ -26,6 +28,10 @@ def main():
         recovery_alerts=[a for a in s['alerts'] if a.get('event_key') in {rid+':approved' for rid in approved_ids}]
         print('Recovery notification recipient roles:',sorted({u['role'] for u in s['users'] if any(u['id'] in a['recipient_ids'] for a in recovery_alerts)}))
         snapshot = s
+    if '--diagnostics' in sys.argv:
+        print('Recent jobs:',[{k:j.get(k) for k in ('id','root_id','status','trigger','created_at','integrations','missing_inputs','error')} for j in snapshot['intelligence_jobs'][-5:]])
+        print('Worker queue:',{status:sum(j['status']==status for j in snapshot['intelligence_jobs']) for status in ('queued','running','failed','stale','degraded','completed')})
+        return
     if '--validate-current' in sys.argv:
         root=next(s for s in snapshot['shipments'] if s['id']=='SHP-101')
         payload,missing,_=build_request(snapshot,affected(snapshot,root))
@@ -94,6 +100,7 @@ def main():
     for rec in recs:
         result=call('POST','/intelligence/recommendations/'+rec['id']+'/decision','logistics',{'status':'approved','reason':'Explicit live integration demonstration: validated schedule and capacity reviewed'})
         print('Recommendation:',result['id'],result['status'])
+        break  # Any operational approval invalidates sibling snapshots by design.
     driver=call('GET','/shipments/SHP-101','driver')
     print('Persisted dispatch hold:',driver.get('dispatch_not_before'),'pickup:',driver.get('planned_pickup_at'),'delivery:',driver.get('planned_delivery_at'))
     for role in ('port','logistics','captain','driver'):

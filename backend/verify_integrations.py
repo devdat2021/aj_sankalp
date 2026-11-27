@@ -7,6 +7,9 @@ import httpx
 
 
 def main():
+    if '--model' in sys.argv:
+        settings.gemini_model = sys.argv[sys.argv.index('--model')+1]
+        settings.gemini_retired_model_fallback = ''
     if '--gemini-diagnostic' in sys.argv:
         r = httpx.post(f'https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent',
             headers={'x-goog-api-key': settings.gemini_api_key}, json={'contents':[{'parts':[{'text':'Reply OK'}]}], 'generationConfig':{'maxOutputTokens':32}}, timeout=30)

@@ -1,13 +1,24 @@
 """Server-only real API transports. No retries of potentially billable POSTs."""
 import json
 import httpx
+from time import monotonic
+from threading import local
 from app.core.config import settings
 
 _resolved_models = {}
+_availability_circuit = {}
+_request_status = local()
 
 
 def effective_gemini_model():
+    circuit = _availability_circuit.get(settings.gemini_model)
+    if circuit and circuit[1] > monotonic():
+        return circuit[0]
     return _resolved_models.get(settings.gemini_model, settings.gemini_model)
+
+
+def gemini_status():
+    return getattr(_request_status, 'value', {'configured_model': settings.gemini_model, 'effective_model': effective_gemini_model()})
 
 
 class IntegrationError(Exception):
@@ -55,7 +66,24 @@ def optimize(payload):
         raise IntegrationError('Google Route Optimization transport failure or timeout; request was not retried') from None
 
 
-def gemini(context, schema, _retirement_retry=False):
+def gemini(context, schema):
+    """One bounded availability fallback, explicitly reported; never fallback on access errors."""
+    _request_status.value = {'configured_model': settings.gemini_model, 'effective_model': effective_gemini_model()}
+    try:
+        return _gemini_request(context, schema)
+    except IntegrationError as exc:
+        transient = any(term in str(exc) for term in ('ReadTimeout', 'HTTP 503', 'HTTP 504'))
+        fallback = settings.gemini_availability_fallback
+        if not transient or not fallback or fallback == effective_gemini_model():
+            raise
+        _availability_circuit[settings.gemini_model] = (fallback, monotonic()+900)
+        _request_status.value.update(effective_model=fallback, fallback_reason=str(exc))
+        return _gemini_request(context, schema)
+    finally:
+        _request_status.value['effective_model'] = effective_gemini_model()
+
+
+def _gemini_request(context, schema, _retirement_retry=False):
     if not settings.gemini_api_key:
         raise IntegrationError('Gemini API key not configured')
     if len(json.dumps(context)) > 120000:
@@ -69,14 +97,14 @@ def gemini(context, schema, _retirement_retry=False):
                 'contents': [{'role': 'user', 'parts': [{'text': json.dumps(context)}]}],
                 'generationConfig': {'temperature': 0, 'maxOutputTokens': 4096,
                                      'responseMimeType': 'application/json', 'responseJsonSchema': schema}},
-            timeout=settings.gemini_timeout_seconds)
+            timeout=min(settings.gemini_timeout_seconds, settings.gemini_primary_timeout_seconds) if effective_gemini_model()!=settings.gemini_availability_fallback else settings.gemini_timeout_seconds)
         if (response.status_code == 404 and not _retirement_retry
                 and settings.gemini_retired_model_fallback
                 and settings.gemini_retired_model_fallback != effective_gemini_model()):
             message = response.json().get('error', {}).get('message', '')
             if 'no longer available' in message.lower():
                 _resolved_models[settings.gemini_model] = settings.gemini_retired_model_fallback
-                return gemini(context, schema, _retirement_retry=True)
+                return _gemini_request(context, schema, _retirement_retry=True)
         data = checked(response, 'Gemini')
         candidate = data.get('candidates', [{}])[0]
         if candidate.get('finishReason') != 'STOP':

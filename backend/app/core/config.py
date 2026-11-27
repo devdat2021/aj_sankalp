@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = ''
     gemini_model: str = 'gemini-3.8-flash'
     gemini_retired_model_fallback: str = 'gemini-3.7-flash'
+    gemini_availability_fallback: str = 'gemini-3.1-flash-lite'
+    gemini_primary_timeout_seconds: int = 20
     google_cloud_project: str = ''
     google_application_credentials: str = ''
     intelligence_cache_seconds: int = 900

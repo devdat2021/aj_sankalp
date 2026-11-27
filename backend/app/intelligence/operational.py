@@ -159,6 +159,9 @@ def build_request(state, rows, now=None):
             continue
         try:
             start, end = max(now, dt(v['available_from'])), dt(v['available_until'])
+            if end <= now:
+                missing.append(f"{v['id']}: availability shift has ended; logistics must confirm a new shift")
+                continue
             if end <= start or float(v['capacity_kg']) <= 0 or float(v['cost_per_hour']) <= 0 or float(v['cost_per_km']) < 0:
                 raise ValueError('Invalid fleet limits')
             if not v.get('cost_currency') or not isinstance(v.get('refrigerated'), bool):
@@ -179,13 +182,23 @@ def build_request(state, rows, now=None):
             missing.extend(f"{sh['id']}: {b}" for b in blocks)
             continue
         try:
+            required = ('cargo_ready_at','pickup_window_start','pickup_window_end','delivery_deadline','weight_kg','pickup','delivery','pickup_service_seconds','delivery_service_seconds')
+            absent = [key for key in required if sh.get(key) is None]
+            if absent:
+                missing.append(f"{sh['id']}: missing " + ', '.join(absent))
+                continue
             start = max(now, dt(sh['cargo_ready_at']), dt(sh['pickup_window_start']))
+            if sh.get('dispatch_not_before'):
+                start=max(start,dt(sh['dispatch_not_before']))
             vessel = next((v for v in state['vessels'] if v['id'] == sh.get('vessel_id')), {})
             if vessel.get('expected_arrival_at'):
                 start = max(start, dt(vessel['expected_arrival_at']))
             elif sh.get('vessel_id') and sh['status'] in {'planned', 'at_sea'}:
                 raise ValueError('Dated vessel ETA required')
             end, deadline = dt(sh['pickup_window_end']), dt(sh['delivery_deadline'])
+            if end <= now or deadline <= now:
+                missing.append(f"{sh['id']}: {'pickup window' if end <= now else 'delivery deadline'} has passed; confirm revised times")
+                continue
             weight = math.ceil(float(sh['weight_kg']))
             if weight <= 0 or start >= end or start >= deadline:
                 raise ValueError('Infeasible cargo window')
@@ -316,6 +329,10 @@ def validate_analyst(raw, context):
                       *review.assumptions_and_uncertainties, *(r.reasoning for r in review.recommendations)])
     for known_id in sorted(entities | evidence | set(candidates), key=len, reverse=True):
         prose = prose.replace(known_id, '')
-    if re.search(r'\d', prose):
-        raise ValueError('Numerical narrative is not accepted; use the supplied calculated impacts')
+    # Permit literal quantities/timestamps already supplied as evidence. The old blanket
+    # digit ban rejected correctly grounded dates, road names and measurements as hallucinations.
+    evidence_text=json.dumps(context['evidence']) + json.dumps(context['candidates'])
+    supplied_numbers=set(re.findall(r'\d+(?:\.\d+)?', evidence_text))
+    if not set(re.findall(r'\d+(?:\.\d+)?',prose)) <= supplied_numbers:
+        raise ValueError('Numerical claim is not present in supplied evidence')
     return review.model_dump()
