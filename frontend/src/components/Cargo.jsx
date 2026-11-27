@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import AssignmentQR from './AssignmentQR'
+import { lazy, Suspense, useState } from 'react'
 import { iso, options, stamp } from '../services/format'
 import { ActionButton, ActionForm, Badge, Empty, Field } from './Forms'
+
+const AssignmentQR = lazy(() => import('./AssignmentQR'))
 
 const route = f => ({ id: crypto.randomUUID(), name: f.route_name, delay_hours: Number(f.delay || 0), cost: Number(f.cost || 0), risk: Number(f.risk || 0), simulated: true })
 
@@ -104,7 +105,7 @@ export default function Cargo({ data, user, mutate }) {
       {logistics && sh.truck_id && !driverTrucks.some(v => v.id === sh.truck_id) && sh.status !== 'delivered' &&
         <p>Assign a driver to this truck to enable QR access.</p>}
       {logistics && driverTrucks.some(v => v.id === sh.truck_id) && !['delivered','completed','cancelled','canceled'].includes(sh.status) && <section>
-        {codes[sh.id] && <AssignmentQR token={codes[sh.id]} shipment={sh.id} details={{ ...sh, driver: truckDriverName(sh, data) }} />}
+        {codes[sh.id] && <Suspense fallback={<p role="status">Preparing driver QR…</p>}><AssignmentQR token={codes[sh.id]} shipment={sh.id} details={{ ...sh, driver: truckDriverName(sh, data) }} /></Suspense>}
         <div className="cw-actions">
           <ActionButton action={() => saveAccess(sh.id, `/shipments/${sh.id}/driver-access?action=issue`, 'POST')}>Issue replacement QR</ActionButton>
           <ActionButton action={() => saveAccess(sh.id, `/shipments/${sh.id}/driver-access?action=revoke`, 'POST')}>Revoke driver QR</ActionButton>

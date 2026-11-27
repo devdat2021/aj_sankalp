@@ -56,6 +56,9 @@ test('only operators are offered paid intelligence analysis controls', () => {
   const html = renderToStaticMarkup(createElement(Intelligence, { token: 'test', user, shipments: [shipment] }))
   assert.match(html, /Analyze disruption/)
   assert.match(html, /Analysis may call paid services/)
+  assert.match(html, /Manage planning inputs/)
+  assert.doesNotMatch(html, /Fleet availability and capacity/)
+  assert.doesNotMatch(html, /name="weight_kg"/)
 })
 
 test('readiness inputs belong to port while transport inputs belong to logistics', () => {

@@ -3,6 +3,8 @@ import { api } from '../services/api'
 import { stamp } from '../services/format'
 import { intelligenceErrorMessage } from '../services/intelligenceErrors'
 import IntelligenceInputs, { FleetInputs } from './IntelligenceInputs'
+import { selectedIntelligence, analysisLabels } from '../services/intelligenceView'
+import './Intelligence.css'
 
 const operators = ['port', 'logistics']
 
@@ -19,7 +21,7 @@ function integrationMessage(name, result) {
 
 function shipmentName(id, shipments) {
   const row = shipments.find(shipment => shipment.id === id)
-  return row ? `${id} · ${row.cargo}` : id
+  return row ? `${id} Â· ${row.cargo}` : id
 }
 
 function scheduleTime(value) {
@@ -52,6 +54,8 @@ function ComparisonTable({ rows, shipments }) {
 }
 
 export default function Intelligence({ token, user, shipments = [], vehicles = [], onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [reviewing, setReviewing] = useState('')
   const [jobs, setJobs] = useState([])
   const [recommendations, setRecommendations] = useState([])
   const [health, setHealth] = useState(null)
@@ -63,7 +67,11 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
   const [actionMessage, setActionMessage] = useState('')
   const [actionError, setActionError] = useState(null)
   const requestSequence = useRef(0)
-  const invalidateRequests = useCallback(() => { requestSequence.current++ }, [])
+  const refreshController = useRef(null)
+  const invalidateRequests = useCallback(() => {
+    requestSequence.current++
+    refreshController.current?.abort()
+  }, [])
   const pollActive = useRef(false)
   const jobsRef = useRef([])
   const recommendationsRef = useRef([])
@@ -72,35 +80,29 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
   const refresh = useCallback(async () => {
     const request = ++requestSequence.current
     setRefreshing(true)
-    const results = await Promise.allSettled([
-      api('/intelligence/health', token),
-      api('/intelligence/recommendations', token),
-      operator ? api('/intelligence/analyses', token) : Promise.resolve([])
-    ])
-    if (request !== requestSequence.current) return false
-
-    const failures = []
-    if (results[0].status === 'fulfilled') setHealth(results[0].value)
-    else failures.push(['Service status', results[0].reason])
-    if (results[1].status === 'fulfilled') {
-      recommendationsRef.current = results[1].value
-      setRecommendations(results[1].value)
+    refreshController.current?.abort()
+    const controller = new AbortController()
+    refreshController.current = controller
+    try {
+      const result = await api('/intelligence/overview', token, 'GET', undefined, controller.signal, 45000)
+      if (request !== requestSequence.current) return false
+      setHealth(result.health)
+      recommendationsRef.current = result.recommendations
+      jobsRef.current = result.analyses
+      setRecommendations(result.recommendations)
+      setJobs(result.analyses)
+      pollActive.current = result.analyses.some(job => ['queued', 'running'].includes(job.status)) ||
+        result.recommendations.some(rec => rec.status === 'pending')
+      setLoadError(null)
+      return true
+    } catch (error) {
+      if (request !== requestSequence.current || controller.signal.aborted) return false
+      setLoadError([['Operational intelligence', error]])
+      return false
+    } finally {
+      if (request === requestSequence.current) setRefreshing(false)
     }
-    else failures.push(['Recommendations', results[1].reason])
-    if (results[2].status === 'fulfilled') {
-      jobsRef.current = results[2].value
-      setJobs(results[2].value)
-    }
-    else failures.push(['Analyses', results[2].reason])
-
-    const nextJobs = results[2].status === 'fulfilled' ? results[2].value : jobsRef.current
-    const nextRecs = results[1].status === 'fulfilled' ? results[1].value : recommendationsRef.current
-    pollActive.current = nextJobs.some(job => ['queued', 'running'].includes(job.status)) ||
-      nextRecs.some(rec => rec.status === 'pending')
-    setLoadError(failures.length ? failures : null)
-    setRefreshing(false)
-    return failures.length === 0
-  }, [operator, requestSequence, token])
+  }, [token])
 
   useEffect(() => {
     let active = true
@@ -139,10 +141,11 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
   async function act(path, body, success) {
     setBusyAction(path); setActionMessage(''); setActionError(null)
     try {
-      await api(path, token, 'POST', body)
+      const result = await api(path, token, 'POST', body)
       await refresh()
       await onSaved?.()
-      setActionMessage(success)
+      setReviewing('')
+      setActionMessage(path === '/intelligence/analyses' && !['queued', 'running'].includes(result.status) ? 'Showing the latest analysis for these inputs.' : success)
     } catch (error) {
       setActionError(error)
     } finally { setBusyAction('') }
@@ -151,152 +154,90 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
   const activeShipments = shipments.filter(shipment => shipment.status !== 'delivered')
   const selectedId = activeShipments.some(shipment => shipment.id === selected) ? selected : activeShipments[0]?.id || ''
   const selectedShipment = shipments.find(shipment => shipment.id === selectedId)
-  const latest = jobs[0]
-  const latestForSelection = latest && latest.shipment_ids?.includes(selectedId)
-  const canRetry = operator && latestForSelection && ['failed', 'degraded', 'stale'].includes(latest.status)
-  const modelStatus = health?.gemini_configured
-    ? `Gemini configured · ${health.gemini_effective_model || health.gemini_model}. Provider generation is verified only by an analysis.`
-    : 'Gemini is not configured. No AI-generated analysis will be shown.'
+  const { latest, current, history } = selectedIntelligence(jobs, recommendations, selectedId, operator)
+  const analyzing = ['queued', 'running'].includes(latest?.status)
+  const canRetry = operator && ['failed', 'degraded', 'stale'].includes(latest?.status)
+  const summary = latest?.analyst?.operational_summary || (
+    analyzing ? 'Checking shipment impact and recovery options. Results will appear here.' :
+    latest?.missing_inputs?.length ? 'A few planning details need attention before a complete schedule can be prepared.' :
+    latest ? 'Review the available recovery actions below.' :
+    'Select a shipment and analyze its latest risks and recovery options.')
+  const actionable = current.filter(rec => rec.status === 'pending' && rec.responsible_role === user.role && !rec.advisory)
+
+  function renderRecommendation(rec, historical = false) {
+    const path = `/intelligence/recommendations/${rec.id}/decision`
+    const canDecide = !historical && actionable.includes(rec)
+    const assignments = rec.proposed_state?.assignments || []
+    const title = rec.action === 'hold_dispatch' ? 'Hold dispatch until cargo is ready' : rec.action === 'schedule_transport' ? 'Revise transport schedule' : 'Review operational constraint'
+    return <article key={rec.id} className="intel-action">
+      <div className="intel-action-heading"><h4>{title}</h4><span className={`intel-tag ${rec.status}`}>{rec.status === 'executed' ? 'Approved' : rec.status.replaceAll('_', ' ')}</span></div>
+      <p>{rec.reason}</p>
+      <div className="intel-action-meta"><span>{rec.shipment_ids.join(', ')}</span><span>Owner: {rec.responsible_role}</span>
+        {canDecide && <button type="button" className="intel-link" onClick={() => setReviewing(reviewing === rec.id ? '' : rec.id)} aria-expanded={reviewing === rec.id}>Review decision</button>}
+      </div>
+      {rec.unavailable_reason && <p className="cw-muted">{rec.unavailable_reason}</p>}
+      <details open={reviewing === rec.id || undefined} className="intel-disclosure"><summary>Schedule and supporting details</summary>
+        {assignments.map(a => <p key={a.shipment_id}><strong>{a.shipment_id} Â· {a.truck_id}</strong><br/>{a.dispatch_not_before
+          ? `Do not dispatch before ${stamp(a.dispatch_not_before)}. Operational clearance is still required.`
+          : `Dispatch ${scheduleTime(a.planned_dispatch_at)} Â· Pickup ${scheduleTime(a.planned_pickup_at)} Â· Delivery ${scheduleTime(a.planned_delivery_at)}`}</p>)}
+        {!!rec.impact?.length && <ComparisonTable rows={rec.impact} shipments={shipments}/>}
+        <small>{rec.source} Â· {stamp(rec.created_at)}</small>
+        {rec.advisory && <p className="cw-muted">Use the existing incident, capacity or reroute workflow for this advisory.</p>}
+      </details>
+      {canDecide && reviewing === rec.id && <div className="intel-decision">
+        <label className="cw-field">Decision reason<textarea value={reasons[rec.id] || ''} maxLength={500} onChange={event => setReasons(previous => ({ ...previous, [rec.id]: event.target.value }))} placeholder="Why is this the right operational decision?"/></label>
+        <div className="cw-actions">
+          <button type="button" className="cw-primary" disabled={!!busyAction || (reasons[rec.id] || '').trim().length < 3} onClick={() => act(path, { status: 'approved', reason: reasons[rec.id].trim() }, 'Approved. Stakeholder instructions have been updated.')}>Approve {rec.action === 'hold_dispatch' ? 'hold' : 'schedule'}</button>
+          <button type="button" disabled={!!busyAction || (reasons[rec.id] || '').trim().length < 3} onClick={() => act(path, { status: 'rejected', reason: reasons[rec.id].trim() }, 'Recommendation rejected.')}>Reject</button>
+        </div>
+      </div>}
+    </article>
+  }
 
   return <section className="cw-card workflow-content intelligence-panel" aria-label="Operational intelligence">
-    <div className="cw-row">
-      <div>
-        <h2>{user.role === 'driver' ? 'Approved recovery instructions' : user.role === 'captain' ? 'Vessel operational impact' : 'Operational intelligence'}</h2>
-        <p className="cw-muted">Evidence-based disruption impact and validated schedules. Analysis never authorizes dispatch, port access or physical pickup.</p>
-      </div>
-      {refreshing && <span role="status" aria-live="polite">Refreshing intelligence…</span>}
-    </div>
-
-    {loadError && <div className="cw-error" role="alert">
-      <p>Some intelligence data could not be refreshed. Previously loaded results are retained.</p>
-      <button type="button" onClick={refresh} disabled={refreshing}>Retry refresh</button>
-      <details><summary>Technical details</summary><ul>{loadError.map(([label, error]) => <li key={label}>{label}: {error.status ? `HTTP ${error.status}` : error.message || 'Request failed'}</li>)}</ul></details>
-    </div>}
-    {actionError && <div className="cw-error" role="alert">
-      <p>{intelligenceErrorMessage(actionError)}</p>
-      <details><summary>Technical details</summary><p>{actionError.status ? `HTTP ${actionError.status}. ` : ''}{actionError.message}</p></details>
-    </div>}
-    {actionMessage && <p className="cw-success" role="status">{actionMessage}</p>}
-
-    {health && <details className="intelligence-service-status">
-      <summary>Service readiness · {health.enabled ? 'analysis enabled' : 'analysis disabled'}</summary>
-      <p>{health.enabled ? 'Analysis jobs can be queued.' : 'Analysis is disabled by workspace configuration. Confirmed inputs can still be saved.'}</p>
-      <ul>
-        <li>Google optimization: {health.google_configured ? 'configured; last-analysis status shows whether the provider call succeeded.' : 'not configured or disabled.'}</li>
-        <li>{modelStatus}</li>
-        <li>Storage: {health.storage}. Health checks do not make paid provider calls.</li>
-      </ul>
-    </details>}
-
-    {operator && <div className="cw-actions intelligence-controls">
-      <label className="cw-field">Consignment to analyze
-        <select aria-label="Consignment to analyze" value={selectedId} onChange={event => setSelected(event.target.value)}>
-          <option value="">Select consignment</option>
-          {activeShipments.map(shipment => <option key={shipment.id} value={shipment.id}>{shipment.id} · {shipment.cargo}</option>)}
-        </select>
-      </label>
-      <button className="cw-primary" type="button" disabled={busyAction !== '' || !selectedId || health?.enabled === false || (refreshing && !health)}
-        onClick={() => act('/intelligence/analyses', { shipment_id: selectedId }, 'Analysis queued. Results will appear when processing completes.')}>
-        {busyAction === '/intelligence/analyses' ? 'Queueing analysis…' : 'Analyze disruption'}
+    <header className="intel-header"><div><span className="intel-eyebrow">OPERATIONS ASSISTANT</span>
+      <h2>{user.role === 'driver' ? 'Your updated instructions' : user.role === 'captain' ? 'Vessel impact' : 'Operational intelligence'}</h2>
+      <p>Understand the impact. Review the next step.</p></div>
+      <span className={`intel-tag ${latest?.status || ''}`} role="status">{health?.enabled === false ? 'Analysis disabled' : latest ? analysisLabels[latest.status] || latest.status : refreshing ? 'Loadingâ€¦' : 'Ready to analyze'}</span>
+    </header>
+    {loadError && <div className="cw-error" role="alert">Some results could not be refreshed. <button type="button" onClick={refresh} disabled={refreshing}>Try again</button></div>}
+    {actionError && <p className="cw-error" role="alert">{intelligenceErrorMessage(actionError)}</p>}
+    {actionMessage && <p className="intel-feedback" role="status">{actionMessage}</p>}
+    {operator && <div className="intel-toolbar">
+      <label className="cw-field">Consignment<select aria-label="Consignment to analyze" value={selectedId} onChange={event => { setSelected(event.target.value); setActionMessage(''); setActionError(null); setEditing(false); setReviewing('') }}>
+        {!activeShipments.length && <option value="">No active consignments</option>}
+        {activeShipments.map(s => <option key={s.id} value={s.id}>{s.id} Â· {s.cargo}</option>)}
+      </select></label>
+      <button className="cw-primary" type="button" disabled={!!busyAction || analyzing || !selectedId || health?.enabled === false || (refreshing && !health)} onClick={() => act('/intelligence/analyses', { shipment_id: selectedId, ...(canRetry ? { retry: true } : {}) }, 'Analysis started. Weâ€™ll update the results here.')}>
+        {analyzing || busyAction === '/intelligence/analyses' ? 'Analyzingâ€¦' : canRetry ? 'Analyze again' : 'Analyze disruption'}
       </button>
-      {canRetry && <button type="button" disabled={busyAction !== '' || health?.enabled === false}
-        onClick={() => act('/intelligence/analyses', { shipment_id: selectedId, retry: true }, 'A new paid analysis was queued.')}>
-        {busyAction === '/intelligence/analyses' ? 'Queueing retry…' : 'Retry paid analysis'}
-      </button>}
-      <small>Analysis may call paid services. Unchanged recent inputs reuse the existing result; retries are rate-limited.</small>
     </div>}
-
-    {operator && selectedShipment && <div className="intelligence-inputs">
-      <h3>Operational inputs · {selectedShipment.id}</h3>
-      <IntelligenceInputs key={selectedShipment.id} shipment={selectedShipment} token={token} role={user.role} onSaved={onSaved}/>
-      {user.role === 'logistics' && <FleetInputs vehicles={vehicles} token={token} onSaved={onSaved}/>}
+    {operator && <div className="intel-summary">
+      <p>{summary}</p>
+      <div className="intel-summary-meta">{latest && <span>Updated {stamp(latest.completed_at || latest.created_at)}</span>}{actionable.length > 0 && <span>{actionable.length} decision{actionable.length > 1 ? 's' : ''} to review</span>}</div>
+      {!!latest?.missing_inputs?.length && <details className="intel-disclosure"><summary>{latest.missing_inputs.length} planning detail{latest.missing_inputs.length > 1 ? 's' : ''} to check</summary><ul>{latest.missing_inputs.map((item, index) => <li key={index}>{item}</li>)}</ul></details>}
     </div>}
-
-    {latest && <details open className="intelligence-analysis">
-      <summary>Latest analysis · {latest.status} · {stamp(latest.created_at)}{latest.trigger ? ` · ${latest.trigger.replaceAll('_', ' ')}` : ''}</summary>
-      <h3>Affected consignments</h3>
-      {latest.shipment_ids?.length
-        ? <ul>{latest.shipment_ids.map(id => <li key={id}>{shipmentName(id, shipments)}</li>)}</ul>
-        : <p className="cw-muted">No affected consignments were recorded.</p>}
-
-      {latest.status === 'queued' && <p role="status">Analysis is waiting for the background worker.</p>}
-      {latest.status === 'running' && <p role="status">Providers are evaluating the current evidence. No operational changes are applied during analysis.</p>}
-      {latest.status === 'failed' && <p className="cw-error">Analysis could not be completed. No operational changes were applied.</p>}
-
-      {!!latest.integrations && <div>
-        <h3>Provider status</h3>
-        <ul>{Object.entries(latest.integrations).map(([name, result]) => <IntegrationStatus key={name} name={name} result={result}/>)}</ul>
-      </div>}
-      {latest.error && <details><summary>Analysis diagnostics</summary><p>{latest.error}</p></details>}
-
-      {latest.analyst
-        ? <section aria-label="AI operational review">
-          <h3>AI analysis · {latest.analyst.severity} severity</h3>
-          <p><strong>Operational summary:</strong> {latest.analyst.operational_summary}</p>
-          <p><strong>Root-cause assessment:</strong> {latest.analyst.root_cause_analysis}</p>
-          {!!latest.analyst.cascading_consequences?.length && <><strong>Potential cascading consequences</strong><ul>{latest.analyst.cascading_consequences.map((item, index) => <li key={index}>{item}</li>)}</ul></>}
-          {!!latest.analyst.recommendations?.length && <><strong>Evidence-linked review of candidate actions</strong><ul>{latest.analyst.recommendations.map(item => {
-            const rec = recommendations.find(recommendation => recommendation.id === item.candidate_id)
-            return <li key={item.candidate_id}>{rec?.action?.replaceAll('_', ' ') || 'Candidate action'}: {item.reasoning} <small>Evidence: {item.evidence_ids.join(', ')}</small></li>
-          })}</ul></>}
-          {!!latest.analyst.assumptions_and_uncertainties?.length && <><strong>Assumptions and uncertainty</strong><ul>{latest.analyst.assumptions_and_uncertainties.map((item, index) => <li key={index}>{item}</li>)}</ul></>}
-        </section>
-        : latest.integrations?.gemini?.status === 'unavailable' && <p className="cw-muted" role="status">Gemini did not return a validated review. No AI narrative has been fabricated; any listed actions come from separately validated operational calculations.</p>}
-
-      {!!latest.missing_inputs?.length && <details><summary>Missing inputs and constraints ({latest.missing_inputs.length})</summary><ul>{latest.missing_inputs.map((item, index) => <li key={index}>{item}</li>)}</ul><p className="cw-muted">Port confirms cargo readiness and pickup windows. Logistics confirms shipment requirements and fleet availability.</p></details>}
-      {!!latest.comparison?.length && <section><h3>Baseline versus proposed schedule</h3><ComparisonTable rows={latest.comparison} shipments={shipments}/><p className="cw-muted">Comparisons use recorded baselines and validated provider schedules; no realized savings are inferred.</p></section>}
-      {!!latest.evidence?.length && <details><summary>Disruption evidence and affected entities ({latest.evidence.length})</summary>
-        <ul>{latest.evidence.map(item => <li key={item.id}>
-          <strong>{item.kind.replaceAll('_', ' ')}</strong> · {item.entity_ids.map(id => shipmentName(id, shipments)).join(', ')}
-          <details><summary>Evidence details</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(item.details, null, 2)}</pre></details>
-        </li>)}</ul>
-      </details>}
-    </details>}
-
-    <section className="intelligence-recommendations" aria-label="Operational recommendations">
-      <h3>Recommendations and decisions</h3>
-      {!recommendations.length && <p className="cw-muted">{refreshing ? 'Loading recommendations…' : 'No recommendations are available for this role and scope yet.'}</p>}
-      {recommendations.slice(0, 20).map(recommendation => {
-        const path = `/intelligence/recommendations/${recommendation.id}/decision`
-        const canDecide = recommendation.status === 'pending' && recommendation.responsible_role === user.role && operator && !recommendation.advisory
-        const assignments = recommendation.proposed_state?.assignments || []
-        return <article key={recommendation.id} className="cw-card intelligence-recommendation">
-          <div className="cw-row"><h4>{recommendation.action === 'hold_dispatch' ? 'Dispatch hold' : recommendation.action === 'schedule_transport' ? 'Transport schedule' : 'Operational constraint review'}</h4><span className="cw-badge">{recommendation.status}</span></div>
-          <p><strong>Affected consignments:</strong> {recommendation.shipment_ids.map(id => shipmentName(id, shipments)).join(', ')}</p>
-          <p><strong>Decision owner:</strong> {recommendation.responsible_role}{recommendation.advisory ? ' · Advisory only' : ''}</p>
-          <p>{recommendation.reason}</p>
-          <small>{recommendation.source || 'Operational calculation'} · Created {stamp(recommendation.created_at)} · Valid until {stamp(recommendation.expires_at)}</small>
-          {!!assignments.length && <div>
-            <h5>Proposed assignments</h5>
-            {assignments.map(assignment => <p key={assignment.shipment_id}>
-              {shipmentName(assignment.shipment_id, shipments)} · Vehicle {assignment.truck_id}.
-              {assignment.dispatch_not_before
-                ? ` Do not dispatch before ${stamp(assignment.dispatch_not_before)}. Obtain operational clearance before departure.`
-                : ` Proposed dispatch ${scheduleTime(assignment.planned_dispatch_at)}, pickup ${scheduleTime(assignment.planned_pickup_at)}, delivery ${scheduleTime(assignment.planned_delivery_at)}.`}
-            </p>)}
-          </div>}
-          {!!recommendation.impact?.length && <section><h5>Schedule impact</h5><ComparisonTable rows={recommendation.impact} shipments={shipments}/></section>}
-          {recommendation.status === 'executed' && <p role="status">Approved operational update. Relevant portal notifications and shipment instructions are available.</p>}
-          {recommendation.status === 'advisory' && <p className="cw-muted">This item cannot be approved here. Use the existing authorized incident, capacity or reroute workflow.</p>}
-          {canDecide && <div className="cw-stack">
-            <label className="cw-field">Decision reason
-              <textarea value={reasons[recommendation.id] || ''} maxLength={500} minLength={3}
-                onChange={event => setReasons(previous => ({ ...previous, [recommendation.id]: event.target.value }))}
-                placeholder="Explain the operational basis for this decision"/>
-            </label>
-            <div className="cw-actions">
-              <button type="button" className="cw-primary" disabled={busyAction !== '' || (reasons[recommendation.id] || '').trim().length < 3}
-                onClick={() => act(path, { status: 'approved', reason: reasons[recommendation.id].trim() }, 'Decision recorded. Shipment updates and role-scoped notifications are refreshed.')}>
-                {busyAction === path ? 'Saving decision…' : recommendation.action === 'hold_dispatch' ? 'Approve dispatch hold' : 'Approve schedule'}
-              </button>
-              <button type="button" disabled={busyAction !== '' || (reasons[recommendation.id] || '').trim().length < 3}
-                onClick={() => act(path, { status: 'rejected', reason: reasons[recommendation.id].trim() }, 'Recommendation rejected. No operational schedule changes were applied.')}>
-                Reject
-              </button>
-            </div>
-          </div>}
-        </article>
-      })}
+    <section className="intel-action-list" aria-label="Operational recommendations">
+      {current.length > 0 ? current.slice(0, 3).map(rec => renderRecommendation(rec)) : <p className="intel-empty">{analyzing ? 'Recovery options are being evaluated.' : operator ? 'No current decisions to review for this shipment.' : 'No updated instructions for your assignments.'}</p>}
+      {current.length > 3 && <details className="intel-disclosure"><summary>Show {current.length - 3} more recommendations</summary>{current.slice(3).map(rec => renderRecommendation(rec))}</details>}
     </section>
+    {operator && selectedShipment && <details className="intel-disclosure intel-input-drawer" open={editing} onToggle={event => setEditing(event.currentTarget.open)}>
+      <summary>Manage planning inputs <span>Shipment{user.role === 'logistics' ? ' & fleet' : ' readiness'}</span></summary>
+      {editing && <div className="intel-input-content"><IntelligenceInputs key={selectedId} shipment={selectedShipment} token={token} role={user.role} onSaved={onSaved}/>{user.role === 'logistics' && <FleetInputs vehicles={vehicles} token={token} onSaved={onSaved}/>}</div>}
+    </details>}
+    <footer className="intel-footer">
+      <details className="intel-disclosure"><summary>Analysis details & history</summary>
+        {latest?.analyst && <><h3>Why this matters</h3><p>{latest.analyst.root_cause_analysis}</p><ul>{latest.analyst.cascading_consequences?.map((item, i) => <li key={i}>{item}</li>)}</ul><h3>Assumptions</h3><ul>{latest.analyst.assumptions_and_uncertainties?.map((item, i) => <li key={i}>{item}</li>)}</ul></>}
+        {!!latest?.comparison?.length && <ComparisonTable rows={latest.comparison} shipments={shipments}/>}
+        {latest?.integrations && <ul>{Object.entries(latest.integrations).map(([name, result]) => <IntegrationStatus key={name} name={name} result={result}/>)}</ul>}
+        {health && <p className="cw-muted">AI model: {health.gemini_effective_model || health.gemini_model}. {health.enabled ? 'Analysis enabled.' : 'Analysis disabled.'}</p>}
+        {operator && <small>Analysis may call paid services. Recent unchanged inputs reuse results.</small>}
+        {latest?.error && <p>{latest.error}</p>}
+        {actionError && <p>{actionError.message}</p>}
+        {!!latest?.evidence?.length && <details className="intel-disclosure"><summary>Supporting evidence ({latest.evidence.length})</summary>{latest.evidence.map(item => <div key={item.id}><strong>{item.kind.replaceAll('_', ' ')}</strong><pre>{JSON.stringify(item.details, null, 2)}</pre></div>)}</details>}
+        {!!history.length && <details className="intel-disclosure"><summary>Previous decisions ({history.length})</summary>{history.map(rec => renderRecommendation(rec, true))}</details>}
+      </details>
+      <small>Changes require approval from the responsible operator.</small>
+    </footer>
   </section>
 }

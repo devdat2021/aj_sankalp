@@ -319,3 +319,16 @@ def test_expired_and_changed_recommendations_are_not_presented_as_pending(client
         next(r for r in state['recommendations'] if r['id']==rec['id'])['expires_at']=(utcnow()+timedelta(minutes=10)).isoformat()
         state['vehicles'][0]['available']=False
     assert client.get('/api/intelligence/recommendations',headers=auth('logistics')).json()[0]['status']=='stale'
+
+
+@pytest.mark.parametrize('role', ['port', 'logistics', 'captain', 'driver'])
+def test_overview_preserves_scoped_endpoint_results(client, role):
+    headers = auth(role)
+    result = client.get('/api/intelligence/overview', headers=headers)
+    assert result.status_code == 200
+    for key, endpoint in [('health', 'health'), ('analyses', 'analyses'), ('recommendations', 'recommendations')]:
+        assert result.json()[key] == client.get('/api/intelligence/' + endpoint, headers=headers).json()
+
+
+def test_overview_requires_authentication(client):
+    assert client.get('/api/intelligence/overview').status_code in (401, 403)

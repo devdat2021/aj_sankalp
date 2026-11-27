@@ -9,7 +9,7 @@ From `D:/Aj1` (create `.venv` with `python -m venv .venv` if absent):
 ```powershell
 .venv/Scripts/python.exe -m pip install -r backend/requirements.txt
 cd backend
-../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --reload-dir app
 ```
 
 In another terminal:

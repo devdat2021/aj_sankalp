@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     intelligence_enabled: bool = False
     optimization_enabled: bool = False
     gemini_api_key: str = ''
-    gemini_model: str = 'gemini-3.8-flash'
+    gemini_model: str = 'gemini-3.1-flash-lite'
     gemini_retired_model_fallback: str = 'gemini-3.7-flash'
     gemini_availability_fallback: str = 'gemini-3.1-flash-lite'
     gemini_primary_timeout_seconds: int = 20

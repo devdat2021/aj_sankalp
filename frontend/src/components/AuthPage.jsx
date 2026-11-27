@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { Anchor, Eye, EyeOff, ShieldCheck, Mail, TriangleAlert } from 'lucide-react'
 import { useAuth } from './AuthContext'
-import { supabase } from '../services/auth'
+import { hasSupabase } from '../services/auth'
 import { roles } from '../services/roles'
 import { ActionButton } from './Forms'
 import '../auth.css'
@@ -42,7 +42,7 @@ export default function AuthPage({ mode = 'login' }) {
         <h2 id="auth-title">{result ? (result.hasSession ? 'You’re registered' : 'Check your email') : registering ? 'Create your account' : 'Welcome back'}</h2>
         {result ? <div className="auth-confirmation" role="status"><Mail size={32} aria-hidden="true" /><p>{result.hasSession ? 'Your account is ready for an administrator to assign access.' : 'If this email is eligible for registration, you’ll receive a confirmation link. Open it to verify your email, then sign in.'}</p><p>An administrator will assign your role and workspace. Already registered? Sign in with your existing password.</p><Link className="auth-submit" to="/login">Go to sign in</Link></div> : <>
           <p className="auth-subtitle">{registering ? 'Join your team. Your administrator will assign the right workspace.' : 'Sign in to continue to your assigned workspace.'}</p>
-          {!supabase && <p className="auth-error" role="alert">Sign-in is not configured yet. Contact your administrator.</p>}
+          {!hasSupabase && <p className="auth-error" role="alert">Sign-in is not configured yet. Contact your administrator.</p>}
           {(error || auth.error) && <div className="auth-error" role="alert">
             <TriangleAlert size={20} aria-hidden="true" /><p>{error || auth.error}</p>
             {!error && <>
@@ -56,7 +56,7 @@ export default function AuthPage({ mode = 'login' }) {
             </>}
           </div>}
           <form onSubmit={submit} className="auth-form">
-            <fieldset disabled={busy || auth.loading || !supabase}>
+            <fieldset disabled={busy || auth.loading || !hasSupabase}>
               {registering && <label>Full name<input name="name" autoComplete="name" required maxLength={120} placeholder="Your full name" /></label>}
               {registering && <label>Requested role<select name="requestedRole" defaultValue="port" required>
                 <option value="port">Port Operations</option>

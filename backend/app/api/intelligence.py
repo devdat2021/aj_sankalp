@@ -22,6 +22,15 @@ def health(user=Depends(current_user)):
                 cache_seconds=settings.intelligence_cache_seconds)
 
 
+@router.get('/overview')
+def overview(user=Depends(current_user)):
+    # One scoped snapshot avoids three competing full-state reads on page load.
+    with transaction() as state:
+        return dict(health=health(user),
+                    analyses=[j for j in reversed(state['intelligence_jobs']) if job_visible(user, j)][:30],
+                    recommendations=recommendations_for(state, user))
+
+
 @router.post('/analyses', status_code=202)
 def analyze(body: AnalysisRequest, user=Depends(current_user)):
     require(user, 'port', 'logistics', 'captain')
@@ -48,31 +57,36 @@ def analyses(user=Depends(current_user)):
 @router.get('/recommendations')
 def recommendations(user=Depends(current_user)):
     with transaction() as state:
-        current_fingerprint = fingerprint(state)
-        ids = {s['id'] for s in state['shipments'] if visible(user,s)}
-        output = []
-        for r in reversed(state['recommendations']):
-            r = dict(r)
-            if r['status'] == 'pending':
-                if dt(r['expires_at']) <= utcnow():
-                    r.update(status='expired', unavailable_reason='This proposal expired. Analyze the current plan again.')
-                elif r['fingerprint'] != current_fingerprint:
-                    r.update(status='stale', unavailable_reason='Operations changed. Analyze the current plan again.')
-            overlap = set(r['shipment_ids']) & ids
-            if not overlap:
-                continue
-            if user['role'] == 'driver' and r['status'] != 'executed':
-                continue
-            if not set(r['shipment_ids']) <= ids:
-                # Captains/drivers see only their consignments, never a multi-asset plan's other cargo.
-                projected = {k:r[k] for k in ('id','status','action','responsible_role','advisory','source','created_at','expires_at','reason')}
-                projected['shipment_ids']=sorted(overlap)
-                projected['proposed_state']={'assignments':[a for a in (r.get('proposed_state') or {}).get('assignments',[]) if a['shipment_id'] in overlap]}
-                projected['impact']=[a for a in r.get('impact') or [] if a['shipment_id'] in overlap]
-                output.append(projected)
-            else:
-                output.append(r)
-        return output[:50]
+        return recommendations_for(state, user)
+
+
+def recommendations_for(state, user):
+    current_fingerprint = fingerprint(state)
+    ids = {s['id'] for s in state['shipments'] if visible(user,s)}
+    output = []
+    for r in reversed(state['recommendations']):
+        r = dict(r)
+        if r['status'] == 'pending':
+            if dt(r['expires_at']) <= utcnow():
+                r.update(status='expired', unavailable_reason='This proposal expired. Analyze the current plan again.')
+            elif r['fingerprint'] != current_fingerprint:
+                r.update(status='stale', unavailable_reason='Operations changed. Analyze the current plan again.')
+        overlap = set(r['shipment_ids']) & ids
+        if not overlap:
+            continue
+        if user['role'] == 'driver' and r['status'] != 'executed':
+            continue
+        if not set(r['shipment_ids']) <= ids:
+            # Captains/drivers see only their consignments, never a multi-asset plan's other cargo.
+            projected = {k:r[k] for k in ('id','status','action','responsible_role','advisory','source','created_at','expires_at','reason')}
+            projected['shipment_ids']=sorted(overlap)
+            projected['proposed_state']={'assignments':[a for a in (r.get('proposed_state') or {}).get('assignments',[]) if a['shipment_id'] in overlap]}
+            projected['impact']=[a for a in r.get('impact') or [] if a['shipment_id'] in overlap]
+            output.append(projected)
+        else:
+            output.append(r)
+    return output[:50]
+
 
 
 @router.post('/recommendations/{id}/decision')

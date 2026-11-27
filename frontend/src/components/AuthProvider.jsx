@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthContext } from './AuthContext'
 import { api } from '../services/api'
-import { supabase, allowDemo } from '../services/auth'
+import { getSupabase, hasSupabase, allowDemo } from '../services/auth'
 import { setCrisisToken } from '../portals/port/services/crisisApi'
 
 export default function AuthProvider({ children }) {
@@ -25,23 +25,32 @@ export default function AuthProvider({ children }) {
     }
   }, [])
   useEffect(() => {
+    let active = true
+    let subscription
     const sequence = generation
-    if (!supabase) {
+    if (!hasSupabase) {
       const initial = setTimeout(() => resolve(allowDemo ? sessionStorage.getItem('coastwatch.demo') || '' : '').catch(() => {}), 0)
-      return () => clearTimeout(initial)
+      return () => { active = false; clearTimeout(initial) }
     }
-    // Session events also cover token refresh; role always comes from the backend.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      resolve(session?.access_token || '', session?.user?.id || '', session?.user?.email || '').catch(() => {})
+    getSupabase().then(client => {
+      if (!active || !client) return
+      const { data: { subscription: authSubscription } } = client.auth.onAuthStateChange((_event, session) => {
+        resolve(session?.access_token || '', session?.user?.id || '', session?.user?.email || '').catch(() => {})
+      })
+      subscription = authSubscription
+    }).catch(() => {
+      if (active) setAuth(previous => ({ ...previous, loading: false, error: 'Sign-in service could not be loaded. Refresh and try again.' }))
     })
-    return () => { sequence.current++; subscription.unsubscribe() }
+    return () => { active = false; sequence.current++; subscription?.unsubscribe() }
   }, [resolve])
   async function login(email, password) {
+    const supabase = await getSupabase()
     if (!supabase) throw new Error('Supabase sign-in is not configured yet.')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
   }
   async function register(name, email, password, requestedRole = '') {
+    const supabase = await getSupabase()
     if (!supabase) throw new Error('Supabase sign-up is not configured yet.')
     const safeRole = ['port', 'logistics', 'driver', 'captain'].includes(requestedRole) ? requestedRole : ''
     const { data, error } = await supabase.auth.signUp({ email, password,
@@ -54,6 +63,7 @@ export default function AuthProvider({ children }) {
     return data
   }
   async function retryAccess() {
+    const supabase = await getSupabase()
     if (!supabase) return
     // Refresh the token first so we never retry with an expired JWT.
     const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession()
@@ -66,7 +76,7 @@ export default function AuthProvider({ children }) {
     await resolve(refreshed.session.access_token, refreshed.session.user?.id || '', refreshed.session.user?.email || '')
   }
   async function demo(role) {
-    if (!allowDemo || supabase) throw new Error('Demo login is disabled.')
+    if (!allowDemo || hasSupabase) throw new Error('Demo login is disabled.')
     const health = await api('/health')
     if (!health.demo_mode) throw new Error('The backend has demo access disabled.')
     const token = `local-${role}-demo`
@@ -76,6 +86,7 @@ export default function AuthProvider({ children }) {
   async function logout() {
     sessionStorage.removeItem('coastwatch.demo')
     await resolve('')
+    const supabase = await getSupabase()
     if (supabase) {
       const { error } = await supabase.auth.signOut({ scope: 'local' })
       if (error) throw error

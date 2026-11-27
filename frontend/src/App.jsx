@@ -1,17 +1,18 @@
+import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom'
-import { useState } from 'react'
-import DriverWork from './portals/driver/DriverWork'
 import AuthProvider from './components/AuthProvider'
 import { useAuth } from './components/AuthContext'
 import Workspace from './components/Workspace'
 import Landing from './components/Landing'
 import AuthPage from './components/AuthPage'
 import { roles } from './services/roles'
-import { supabase, allowDemo } from './services/auth'
+import { hasSupabase, allowDemo } from './services/auth'
 import { ActionButton } from './components/Forms'
 import './coordination.css'
 import './workspace.css'
 import './portals/driver/display.css'
+
+const DriverWork = lazy(() => import('./portals/driver/DriverWork'))
 
 function Home() {
   const auth = useAuth()
@@ -23,10 +24,10 @@ function Home() {
     setBusy(true); setError('')
     try { await auth.demo(role) } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
-  return <Landing enter={enter} busy={busy} demoEnabled={allowDemo} hasSignIn={Boolean(supabase)}>
+  return <Landing enter={enter} busy={busy} demoEnabled={allowDemo} hasSignIn={hasSupabase}>
     {(error || auth.error) && <div role="alert" className="cw-error"><p>{error || auth.error}</p>{auth.error && <><p>If your account has no access yet, ask an administrator to assign your role.</p><ActionButton action={auth.logout}>Clear session</ActionButton></>}</div>}
     {auth.user && !roles[auth.user.role] && <section className="workflow-content cw-card"><p>Your account needs a supported role mapping.</p><ActionButton action={auth.logout}>Sign out</ActionButton></section>}
-    {supabase && <section className="workflow-content cw-login cw-card"><h2>Your workspace awaits</h2><p>Sign in or create an account to join your team.</p><div className="cw-actions"><Link to="/login">Sign in</Link><Link to="/register">Create an account</Link></div></section>}
+    {hasSupabase && <section className="workflow-content cw-login cw-card"><h2>Your workspace awaits</h2><p>Sign in or create an account to join your team.</p><div className="cw-actions"><Link to="/login">Sign in</Link><Link to="/register">Create an account</Link></div></section>}
   </Landing>
 }
 
@@ -45,7 +46,7 @@ function SignedInRoutes() {
 
 export default function App() {
   return <BrowserRouter><Routes>
-    <Route path="/driver/work" element={<DriverWork />} />
+    <Route path="/driver/work" element={<Suspense fallback={<main className="cw-loading">Loading driver workspace…</main>}><DriverWork /></Suspense>} />
     <Route path="*" element={<SignedInRoutes />} />
   </Routes></BrowserRouter>
 }
