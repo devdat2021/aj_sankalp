@@ -33,7 +33,8 @@ def test_warning_shared_but_ack_independent(client):
     for role in ['logistics','driver']:
         assert client.get('/api/alerts',headers=auth(role)).json()[0]['id']==aid
     client.patch(f'/api/alerts/{aid}/read',headers=auth('driver'))
-    assert client.get('/api/alerts',headers=auth('logistics')).json()[0]['read_by']==['driver-demo']
+    assert client.get('/api/alerts',headers=auth('logistics')).json()[0]['read_by']==[]
+    assert client.get('/api/alerts',headers=auth('port')).json()[0]['read_by']==['driver-demo']
 
 def test_full_consignment_journey(client):
     def post(path,role,body,code=201):

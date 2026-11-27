@@ -9,7 +9,7 @@ from typing import Literal
 from app.schemas.workflow import (Consignment, Assignment, RouteRequest, PortRequest,
     DockRequest, Approval, DockApproval, Capacity, Position, Milestone, Warning)
 from app.services.port_service import find, audit, now
-from app.services.workflow import require, visible, shipment, notify, pending, port, vessel
+from app.services.workflow import require, visible, shipment, notify, pending, port, vessel, logistics_vessel, alert_view
 from app.intelligence.simulation.engine import simulate
 from app.services.weather import forecast
 
@@ -30,11 +30,11 @@ def dashboard(role: str,user=Depends(current_user)):
     with transaction() as s:
         rows=[r for r in s['shipments'] if visible(user,r)]; ids={r['id'] for r in rows}
         result=dict(user_id=user['id'],shipments=rows,port=s['port'],simulated=True,
-            vessels=[v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
-            vehicles=[v for v in s['vehicles'] if v['id'] in {r.get('truck_id') for r in rows} or (role=='logistics' and v['company_id']==user.get('company_id'))],
+            vessels=[logistics_vessel(v) if role=='logistics' else v for v in s['vessels'] if v['id'] in {r.get('vessel_id') for r in rows} or (role=='captain' and v['id']==user.get('asset_id'))],
+            vehicles=[v for v in s['vehicles'] if (v.get('company_id')==user['company_id'] if role=='logistics' else v['id'] in {r.get('truck_id') for r in rows})],
             incidents=[r for r in s['incidents'] if r['shipment_id'] in ids],
             requests=[r for r in s['requests'] if r['shipment_id'] in ids],
-            alerts=[a for a in s['alerts'] if user['id'] in a['recipient_ids']],
+            alerts=[alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']],
             port_requests=[r for r in s['port_requests'] if r['shipment_id'] in ids],
             docking_requests=[r for r in s['docking_requests'] if (role=='port' and r['port_id']==user.get('port_id')) or (role=='captain' and r['vessel_id']==user.get('asset_id'))])
         if role=='port': result['audit']=s['audit']
@@ -163,7 +163,7 @@ def approve_port(id: str,body: Approval,user=Depends(authority)):
 
 @router.get('/alerts')
 def alerts(user=Depends(current_user)):
-    with transaction() as s: return [a for a in s['alerts'] if user['id'] in a['recipient_ids']]
+    with transaction() as s: return [alert_view(user,a) for a in s['alerts'] if user['id'] in a['recipient_ids']]
 
 @router.post('/alerts',status_code=201)
 def warning(body: Warning,user=Depends(authority)):
@@ -177,7 +177,7 @@ def read_alert(id: str,user=Depends(current_user)):
         row=find(s,'alerts',id)
         if user['id'] not in row['recipient_ids']: raise HTTPException(404,'Alert not found')
         if user['id'] not in row['read_by']: row['read_by'].append(user['id'])
-        return row
+        return alert_view(user,row)
 
 @router.post('/tracking/location')
 def tracking(body: Position,user=Depends(current_user)):
