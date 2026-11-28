@@ -13,8 +13,9 @@
 .vehicle-brand svg { color: #6ee7b7; }
 .vehicle-mode { border-left: 1px solid #45504a; padding-left: 16px; color: #a6b6ad; }
 .vehicle-id { margin-left: auto; color: #c9d4cd; }
-.vehicle-header button { background: #24302a; color: #fff; border-color: #38473f; min-height: 44px; border-radius: 14px; }
-.vehicle-header button:hover:not(:disabled),.drive-apps button:hover:not(:disabled) { color: #fff; background: #35483d; }
+.driver-portal .vehicle-header button { background: #ffffff; color: #dc2626; border-color: #fecaca; min-height: 44px; border-radius: 14px; }
+.driver-portal .vehicle-header button:hover:not(:disabled) { color: #b91c1c; background: #fef2f2; border-color: #fca5a5; }
+.drive-apps button:hover:not(:disabled) { color: #fff; background: #35483d; }
 .vehicle-console { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: clamp(238px,24vw,350px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; gap: 0 12px; }
 .vehicle-console .drive-summary {
   display: flex; flex-direction: column; gap: 16px; overflow-y: auto; min-width: 0; scrollbar-width: thin;
@@ -34,9 +35,10 @@
 .drive-state strong { color: #fff; text-transform: capitalize; font-size: 16px; }
 .drive-state .pending-note { color: #fde68a; }
 .drive-apps { margin-top: auto; padding-top: 12px; display: grid; gap: 6px; }
-.drive-apps button { background: #ffffff0c; border: 1px solid #ffffff15; color: white; min-height: 48px; justify-content: flex-start; border-radius: 14px; }
-.drive-apps button > svg:first-child { color: #a1dbba; }
-.drive-apps button > svg:last-child { margin-left: auto; opacity: .55; }
+.driver-portal .drive-apps button { background: #26352e; border: 1px solid #ffffff20; color: #ffffff; min-height: 48px; justify-content: flex-start; border-radius: 14px; }
+.driver-portal .drive-apps button:hover:not(:disabled) { color: #ffffff; background: #35483d; }
+.driver-portal .drive-apps button > svg:first-child { color: #a1dbba; }
+.driver-portal .drive-apps button > svg:last-child { margin-left: auto; opacity: .7; }
 .drive-apps b { border-radius: 12px; padding: 0 6px; background: #a1dbba; color: #143324; }
 .drive-map { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; isolation: isolate; overflow: hidden; border-radius: 28px; background: #b5d6da; }
 .drive-map .driver-map { background: #b5d6da; }
@@ -55,9 +57,10 @@
 .drive-position { margin-right: auto; color: #b8c6bd; font-size: 13px; }
 .drive-position strong { font-weight: 500; color: white; }
 .position-dot { width: 8px; height: 8px; border-radius: 100%; background: #90c6a6; }
-.drive-toolbar .hazard-action { background: #2a2c22; color: #ffe5a8; border: 1px solid #68604a; border-radius: 999px; }
-.drive-toolbar .hazard-action:hover:not(:disabled) { background: #474333; }
-.drive-toolbar .sos-button { background: #46282c; border-color: #794349; color: #ffd4d4; border-radius: 999px; min-width: 0; }
+.driver-portal .drive-toolbar .hazard-action { background: #2a2c22; color: #ffe5a8; border: 1px solid #68604a; border-radius: 999px; }
+.driver-portal .drive-toolbar .hazard-action:hover:not(:disabled) { background: #474333; color: #ffe5a8; }
+.driver-portal .drive-toolbar .sos-button { background: #46282c; border-color: #794349; color: #ffd4d4; border-radius: 999px; min-width: 0; }
+.driver-portal .drive-toolbar .sos-button:hover:not(:disabled) { background: #5c3338; color: #ffd4d4; }
 .vehicle-console .loading { color: #d6ddd8; }
 .vehicle-console .loading h1 { color: white; }
 .vehicle-console .status-message { left: 50%; top: 8px; right: auto; transform: translateX(-50%); width: min(90%,480px); }

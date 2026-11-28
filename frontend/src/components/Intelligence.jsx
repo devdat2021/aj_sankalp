@@ -21,7 +21,7 @@ function integrationMessage(name, result) {
 
 function shipmentName(id, shipments) {
   const row = shipments.find(shipment => shipment.id === id)
-  return row ? `${id} Â· ${row.cargo}` : id
+  return row ? `${id} · ${row.cargo}` : id
 }
 
 function scheduleTime(value) {
@@ -177,11 +177,11 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
       </div>
       {rec.unavailable_reason && <p className="cw-muted">{rec.unavailable_reason}</p>}
       <details open={reviewing === rec.id || undefined} className="intel-disclosure"><summary>Schedule and supporting details</summary>
-        {assignments.map(a => <p key={a.shipment_id}><strong>{a.shipment_id} Â· {a.truck_id}</strong><br/>{a.dispatch_not_before
+        {assignments.map(a => <p key={a.shipment_id}><strong>{a.shipment_id} · {a.truck_id}</strong><br/>{a.dispatch_not_before
           ? `Do not dispatch before ${stamp(a.dispatch_not_before)}. Operational clearance is still required.`
-          : `Dispatch ${scheduleTime(a.planned_dispatch_at)} Â· Pickup ${scheduleTime(a.planned_pickup_at)} Â· Delivery ${scheduleTime(a.planned_delivery_at)}`}</p>)}
+          : `Dispatch ${scheduleTime(a.planned_dispatch_at)} · Pickup ${scheduleTime(a.planned_pickup_at)} · Delivery ${scheduleTime(a.planned_delivery_at)}`}</p>)}
         {!!rec.impact?.length && <ComparisonTable rows={rec.impact} shipments={shipments}/>}
-        <small>{rec.source} Â· {stamp(rec.created_at)}</small>
+        <small>{rec.source} · {stamp(rec.created_at)}</small>
         {rec.advisory && <p className="cw-muted">Use the existing incident, capacity or reroute workflow for this advisory.</p>}
       </details>
       {canDecide && reviewing === rec.id && <div className="intel-decision">
@@ -198,7 +198,7 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
     <header className="intel-header"><div><span className="intel-eyebrow">OPERATIONS ASSISTANT</span>
       <h2>{user.role === 'driver' ? 'Your updated instructions' : user.role === 'captain' ? 'Vessel impact' : 'Operational intelligence'}</h2>
       <p>Understand the impact. Review the next step.</p></div>
-      <span className={`intel-tag ${latest?.status || ''}`} role="status">{health?.enabled === false ? 'Analysis disabled' : latest ? analysisLabels[latest.status] || latest.status : refreshing ? 'Loadingâ€¦' : 'Ready to analyze'}</span>
+      <span className={`intel-tag ${latest?.status || ''}`} role="status">{health?.enabled === false ? 'Analysis disabled' : latest ? analysisLabels[latest.status] || latest.status : refreshing ? 'Loading…' : 'Ready to analyze'}</span>
     </header>
     {loadError && <div className="cw-error" role="alert">Some results could not be refreshed. <button type="button" onClick={refresh} disabled={refreshing}>Try again</button></div>}
     {actionError && <p className="cw-error" role="alert">{intelligenceErrorMessage(actionError)}</p>}
@@ -206,10 +206,10 @@ export default function Intelligence({ token, user, shipments = [], vehicles = [
     {operator && <div className="intel-toolbar">
       <label className="cw-field">Consignment<select aria-label="Consignment to analyze" value={selectedId} onChange={event => { setSelected(event.target.value); setActionMessage(''); setActionError(null); setEditing(false); setReviewing('') }}>
         {!activeShipments.length && <option value="">No active consignments</option>}
-        {activeShipments.map(s => <option key={s.id} value={s.id}>{s.id} Â· {s.cargo}</option>)}
+        {activeShipments.map(s => <option key={s.id} value={s.id}>{s.id} · {s.cargo}</option>)}
       </select></label>
-      <button className="cw-primary" type="button" disabled={!!busyAction || analyzing || !selectedId || health?.enabled === false || (refreshing && !health)} onClick={() => act('/intelligence/analyses', { shipment_id: selectedId, ...(canRetry ? { retry: true } : {}) }, 'Analysis started. Weâ€™ll update the results here.')}>
-        {analyzing || busyAction === '/intelligence/analyses' ? 'Analyzingâ€¦' : canRetry ? 'Analyze again' : 'Analyze disruption'}
+      <button className="cw-primary" type="button" disabled={!!busyAction || analyzing || !selectedId || health?.enabled === false || (refreshing && !health)} onClick={() => act('/intelligence/analyses', { shipment_id: selectedId, ...(canRetry ? { retry: true } : {}) }, 'Analysis started. We’ll update the results here.')}>
+        {analyzing || busyAction === '/intelligence/analyses' ? 'Analyzing…' : canRetry ? 'Analyze again' : 'Analyze disruption'}
       </button>
     </div>}
     {operator && <div className="intel-summary">

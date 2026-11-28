@@ -4,7 +4,11 @@ import { ActionButton, ActionForm, Badge, Empty, Field } from './Forms'
 
 const AssignmentQR = lazy(() => import('./AssignmentQR'))
 
-const route = f => ({ id: crypto.randomUUID(), name: f.route_name, delay_hours: Number(f.delay || 0), cost: Number(f.cost || 0), risk: Number(f.risk || 0), simulated: true })
+const uuid = () => crypto.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+  const r = crypto.getRandomValues(new Uint8Array(1))[0] & 15
+  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+})
+const route = f => ({ id: uuid(), name: f.route_name, delay_hours: Number(f.delay || 0), cost: Number(f.cost || 0), risk: Number(f.risk || 0), simulated: true })
 
 function truckDriverName(sh, data) {
   if (!sh.truck_id) return 'No truck'
@@ -78,7 +82,12 @@ export default function Cargo({ data, user, mutate }) {
       <ActionForm label="Create consignment" reset submit={f => mutate('/shipments', 'POST', { cargo: f.cargo, quantity: Number(f.quantity), origin: f.origin, destination: f.destination, port_id: data.port.id, vessel_id: f.vessel_id || null, requires_cold: f.requires_cold === 'yes', temperature: Number(f.temperature), max_temperature: Number(f.max_temperature), eta_hours: Number(f.eta_hours) })}>
         <Field label="Cargo description" name="cargo" maxLength={200} /><Field label="Quantity (tonnes)" name="quantity" type="number" min="0.01" step="any" />
         <Field label="Source" name="origin" /><Field label="Destination" name="destination" />
-        <Field label="Vessel ID (optional)" name="vessel_id" required={false} placeholder="e.g. VES-101" />
+        <Field label="Vessel ID (optional)" name="vessel_id" required={false} placeholder="e.g. VES-101 or VES-102" list="vessel-options" />
+        <datalist id="vessel-options">
+          <option value="VES-101">VES-101 · Coastal Pioneer</option>
+          <option value="VES-102">VES-102 · Arabian Pearl</option>
+          {(data.vessels || []).filter(v => !['VES-101', 'VES-102'].includes(v.id)).map(v => <option key={v.id} value={v.id}>{v.id} · {v.name}</option>)}
+        </datalist>
         <Field label="Refrigeration required" name="requires_cold" options={['no', 'yes']} />
         <Field label="Cargo temperature (°C)" name="temperature" type="number" step="any" value={20} />
         <Field label="Maximum temperature (°C)" name="max_temperature" type="number" step="any" value={25} />

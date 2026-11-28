@@ -69,7 +69,26 @@ export function createDriverApi(token) {
   }
 }
 
-export function driverShipment(row, data, user, demo = false) {
+const KNOWN_DESTINATIONS = [
+  [/udupi|manipal/i, [13.3409, 74.751]],
+  [/kundapur/i, [13.6316, 74.69]],
+  [/bhatkal/i, [13.985, 74.556]],
+  [/karwar/i, [14.8136, 74.1297]],
+  [/mangal/i, [12.9141, 74.856]],
+  [/kochi|cochin/i, [9.9312, 76.2673]],
+  [/chennai/i, [13.0827, 80.2707]],
+  [/mumbai|jnpt|nhava/i, [18.949, 72.951]],
+  [/goa|panaji|mormugao/i, [15.411, 73.7997]],
+  [/bengaluru|bangalore/i, [12.9716, 77.5946]],
+]
+
+function resolveDestinationCoords(destination) {
+  if (!destination) return null
+  const hit = KNOWN_DESTINATIONS.find(([re]) => re.test(destination))
+  return hit ? hit[1] : null
+}
+
+export function driverShipment(row, data, user) {
   const truck = data.vehicles?.find(v => v.id === row.truck_id)
   const accessSlot = (data.port_requests || []).find(r => r.shipment_id === row.id && r.kind === 'truck_access' && r.status === 'approved')?.slot
   const activeHazards = (data.incidents || []).filter(i => i.shipment_id === row.id && i.category !== 'delay' && ['reported', 'confirmed'].includes(i.status))
@@ -81,7 +100,7 @@ export function driverShipment(row, data, user, demo = false) {
     refrigerated: row.requires_cold,
     pickup: [data.port.lat, data.port.lng],
     location: truck ? [truck.lat, truck.lng] : [data.port.lat, data.port.lng],
-    dropoff: row.destination_location || (demo && /udupi/i.test(row.destination) ? [13.3409, 74.751] : null),
+    dropoff: row.destination_location || resolveDestinationCoords(row.destination),
     driver: user.name,
     vehicle: truck?.name || row.truck_id,
     status: isStopped ? 'Stopped / Unable to continue' : row.status.replaceAll('_', ' '),

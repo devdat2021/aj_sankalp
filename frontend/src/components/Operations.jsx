@@ -140,7 +140,7 @@ export function VesselOperations({ data, mutate, token }) {
         {!cargo.length ? (
           <p className="cw-muted">No consignments currently assigned to this vessel voyage.</p>
         ) : (
-          <div className="tablewrap">
+          <div className="cw-table">
             <table>
               <thead>
                 <tr>

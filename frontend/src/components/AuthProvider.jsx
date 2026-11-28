@@ -7,17 +7,31 @@ import { setCrisisToken } from '../portals/port/services/crisisApi'
 export default function AuthProvider({ children }) {
   const [auth, setAuth] = useState({ token: '', user: null, accountId: '', accountEmail: '', accessStatus: '', loading: true, error: '' })
   const generation = useRef(0)
+  const resolvedRef = useRef({ token: '', hasUser: false })
   const resolve = useCallback(async (token, accountId = '', accountEmail = '') => {
+    if (token && token === resolvedRef.current.token && resolvedRef.current.hasUser) return
     const version = ++generation.current
-    if (!token) { setCrisisToken(''); setAuth({ token: '', user: null, accountId: '', accountEmail: '', accessStatus: '', loading: false, error: '' }); return }
-    setAuth(previous => ({ ...previous, loading: true, error: '' }))
+    if (!token) {
+      resolvedRef.current = { token: '', hasUser: false }
+      setCrisisToken('')
+      setAuth({ token: '', user: null, accountId: '', accountEmail: '', accessStatus: '', loading: false, error: '' })
+      return
+    }
+    if (!resolvedRef.current.hasUser) {
+      setAuth(previous => ({ ...previous, loading: true, error: '' }))
+    }
     try {
       const user = await api('/me', token)
-      if (version === generation.current) { setCrisisToken(token); setAuth({ token, user, accountId: '', accountEmail: '', accessStatus: '', loading: false, error: '' }) }
+      if (version === generation.current) {
+        resolvedRef.current = { token, hasUser: true }
+        setCrisisToken(token)
+        setAuth({ token, user, accountId: '', accountEmail: '', accessStatus: '', loading: false, error: '' })
+      }
     } catch (error) {
       const accessStatus = error?.status === 403 ? 'pending' : 'unavailable'
       // Keep accountId/accountEmail so the UI can show "Check access again" / "Sign out" buttons.
       if (version === generation.current) {
+        resolvedRef.current = { token: '', hasUser: false }
         setCrisisToken('')
         setAuth({ token: '', user: null, accountId: accountId || 'unknown', accountEmail, accessStatus, loading: false, error: error.message })
       }
